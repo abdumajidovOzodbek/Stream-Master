@@ -414,17 +414,15 @@ export async function getMessageMedia(
   const safeChat = chatId.replace(/[^a-zA-Z0-9_-]/g, "");
   const suffix = thumb ? "_thumb.jpg" : "";
 
-  // Try cached first (any extension)
-  if (!thumb) {
-    const candidates = await fs.readdir(MEDIA_DIR).catch(() => []);
-    const prefix = `${safeChat}_${messageId}.`;
-    const cached = candidates.find((f) => f.startsWith(prefix));
-    if (cached) {
-      return { filePath: path.join(MEDIA_DIR, cached), mimeType: null };
-    }
-  } else {
+  // Try cached first
+  if (thumb) {
     const cached = path.join(MEDIA_DIR, `${safeChat}_${messageId}${suffix}`);
     if (existsSync(cached)) return { filePath: cached, mimeType: "image/jpeg" };
+  } else {
+    for (const ext of [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".MP4", ".mov", ".webm", ".ogg", ".mp3", ".m4a", ".bin"]) {
+      const candidate = path.join(MEDIA_DIR, `${safeChat}_${messageId}${ext}`);
+      if (existsSync(candidate)) return { filePath: candidate, mimeType: null };
+    }
   }
 
   const { entity } = await resolveEntity(chatId);
@@ -464,8 +462,17 @@ export async function getMessageMedia(
 
   const filePath = path.join(MEDIA_DIR, `${safeChat}_${messageId}${ext}`);
   logger.info({ chatId, messageId, filePath }, "Downloading media");
-  const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
-  if (!buffer) return null;
-  await fs.writeFile(filePath, buffer);
-  return { filePath, mimeType };
+  try {
+    const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
+    if (!buffer || buffer.length === 0) {
+      logger.warn({ chatId, messageId }, "Empty media download");
+      return null;
+    }
+    await fs.writeFile(filePath, buffer);
+    logger.info({ chatId, messageId, size: buffer.length }, "Media downloaded");
+    return { filePath, mimeType };
+  } catch (err) {
+    logger.error({ err, chatId, messageId }, "Media download failed");
+    throw err;
+  }
 }

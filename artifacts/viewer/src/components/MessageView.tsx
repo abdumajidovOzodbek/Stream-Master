@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Dialog, type Message, type MessageMedia } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,8 +13,11 @@ import {
   Mic,
   Eye,
   BadgeCheck,
+  ImageOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 50;
 
 function formatBytes(b: number | null): string {
   if (!b) return "";
@@ -56,35 +58,47 @@ function formatDateLabel(t: number): string {
   });
 }
 
-function MediaBlock({
-  media,
-  out,
-}: {
-  media: MessageMedia;
-  out: boolean;
-}) {
-  const [loaded, setLoaded] = useState(false);
-
-  if (media.kind === "photo") {
-    return (
-      <div className="relative overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
-        {!loaded && (
-          <div className="flex aspect-video w-64 items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+function PhotoBlock({ url }: { url: string }) {
+  const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
+  return (
+    <div className="relative overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
+      {state === "loading" && (
+        <div className="flex aspect-video w-64 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {state === "error" && (
+        <div className="flex aspect-video w-64 flex-col items-center justify-center gap-2 text-muted-foreground">
+          <ImageOff className="h-6 w-6" />
+          <span className="text-[11px]">Could not load image</span>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] text-primary underline"
+          >
+            Retry
+          </a>
+        </div>
+      )}
+      <img
+        src={url}
+        alt="Photo"
+        onLoad={() => setState("loaded")}
+        onError={() => setState("error")}
+        className={cn(
+          "max-h-96 max-w-full rounded-lg object-cover",
+          state !== "loaded" && "hidden",
         )}
-        <img
-          src={media.url}
-          alt="Photo"
-          onLoad={() => setLoaded(true)}
-          className={cn(
-            "max-h-96 max-w-full rounded-lg object-cover",
-            !loaded && "hidden",
-          )}
-          loading="lazy"
-        />
-      </div>
-    );
+        loading="lazy"
+      />
+    </div>
+  );
+}
+
+function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
+  if (media.kind === "photo") {
+    return <PhotoBlock url={media.url} />;
   }
 
   if (media.kind === "video") {
@@ -172,9 +186,7 @@ function MediaBlock({
         rel="noreferrer"
         className="block border-l-2 border-primary pl-3 hover:opacity-80"
       >
-        {media.title && (
-          <div className="text-sm font-medium">{media.title}</div>
-        )}
+        {media.title && <div className="text-sm font-medium">{media.title}</div>}
         {media.description && (
           <div className="line-clamp-2 text-xs text-muted-foreground">
             {media.description}
@@ -274,22 +286,74 @@ function MessageBubble({
 }
 
 export function MessageView({ dialog }: { dialog: Dialog }) {
-  const { data, isLoading, error } = useQuery({
+  const {
+    data,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["messages", dialog.id, dialog.type],
-    queryFn: () => api.messages(dialog.id, 50),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.messages(dialog.id, PAGE_SIZE, pageParam || undefined),
+    getNextPageParam: (last) => {
+      if (last.messages.length < PAGE_SIZE) return undefined;
+      const oldest = last.messages[last.messages.length - 1];
+      return oldest ? oldest.id : undefined;
+    },
     staleTime: 10_000,
   });
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = scrollRef.current?.querySelector(
-      "[data-radix-scroll-area-viewport]",
-    ) as HTMLElement | null;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [data]);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const topSentinelRef = useRef<HTMLDivElement | null>(null);
+  const didInitialScroll = useRef(false);
+  const prevScrollHeight = useRef<number | null>(null);
 
-  // gramjs returns newest-first; reverse for display
-  const messages = (data?.messages ?? []).slice().reverse();
+  // Flatten + reverse so oldest renders at top, newest at bottom.
+  const allMessages: Message[] = (data?.pages ?? [])
+    .flatMap((p) => p.messages)
+    .slice()
+    .reverse();
+
+  // Scroll to bottom on first load of a chat.
+  useEffect(() => {
+    didInitialScroll.current = false;
+    prevScrollHeight.current = null;
+  }, [dialog.id, dialog.type]);
+
+  useLayoutEffect(() => {
+    const v = viewportRef.current;
+    if (!v) return;
+    if (!didInitialScroll.current && allMessages.length > 0) {
+      v.scrollTop = v.scrollHeight;
+      didInitialScroll.current = true;
+    } else if (prevScrollHeight.current != null) {
+      // We just prepended older messages — preserve visual position.
+      v.scrollTop = v.scrollHeight - prevScrollHeight.current;
+      prevScrollHeight.current = null;
+    }
+  }, [allMessages.length]);
+
+  // Observe top sentinel: when visible, fetch older messages.
+  useEffect(() => {
+    const sentinel = topSentinelRef.current;
+    const v = viewportRef.current;
+    if (!sentinel || !v) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        if (e?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          prevScrollHeight.current = v.scrollHeight;
+          fetchNextPage();
+        }
+      },
+      { root: v, rootMargin: "200px 0px 0px 0px" },
+    );
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, allMessages.length]);
 
   return (
     <div className="flex h-full flex-col">
@@ -317,6 +381,9 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
                 : dialog.isBot
                   ? "Bot"
                   : "User"}
+            {allMessages.length > 0 && (
+              <span> · {allMessages.length} loaded</span>
+            )}
           </div>
         </div>
         {dialog.username && (
@@ -333,7 +400,7 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
         )}
       </div>
 
-      <ScrollArea className="flex-1 bg-muted/30" ref={scrollRef}>
+      <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/30">
         {isLoading && (
           <div className="flex items-center justify-center py-20 text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -345,36 +412,60 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
             {(error as Error).message}
           </div>
         )}
-        {!isLoading && messages.length === 0 && !error && (
+        {!isLoading && allMessages.length === 0 && !error && (
           <div className="flex h-full items-center justify-center py-20 text-sm text-muted-foreground">
             No messages
           </div>
         )}
-        <div className="space-y-1 px-4 py-4">
-          {messages.map((m, i) => {
-            const prev = messages[i - 1];
-            const showDate =
-              !prev ||
-              new Date(prev.date * 1000).toDateString() !==
-                new Date(m.date * 1000).toDateString();
-            const sameSender =
-              prev && prev.fromId === m.fromId && prev.out === m.out;
-            const showAvatar = !sameSender;
-            return (
-              <div key={m.id}>
-                {showDate && (
-                  <div className="my-3 flex justify-center">
-                    <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
-                      {formatDateLabel(m.date)}
-                    </span>
-                  </div>
+        {allMessages.length > 0 && (
+          <div className="space-y-1 px-4 py-4">
+            <div ref={topSentinelRef} />
+            {hasNextPage && (
+              <div className="flex justify-center py-2 text-xs text-muted-foreground">
+                {isFetchingNextPage ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading older messages…
+                  </span>
+                ) : (
+                  <span>Scroll up for more</span>
                 )}
-                <MessageBubble msg={m} showAvatar={showAvatar} dialog={dialog} />
               </div>
-            );
-          })}
-        </div>
-      </ScrollArea>
+            )}
+            {!hasNextPage && (
+              <div className="py-2 text-center text-[11px] text-muted-foreground">
+                Beginning of chat history
+              </div>
+            )}
+            {allMessages.map((m, i) => {
+              const prev = allMessages[i - 1];
+              const showDate =
+                !prev ||
+                new Date(prev.date * 1000).toDateString() !==
+                  new Date(m.date * 1000).toDateString();
+              const sameSender =
+                prev && prev.fromId === m.fromId && prev.out === m.out;
+              const showAvatar = !sameSender;
+              return (
+                <div key={m.id}>
+                  {showDate && (
+                    <div className="my-3 flex justify-center">
+                      <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
+                        {formatDateLabel(m.date)}
+                      </span>
+                    </div>
+                  )}
+                  <MessageBubble
+                    msg={m}
+                    showAvatar={showAvatar}
+                    dialog={dialog}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
