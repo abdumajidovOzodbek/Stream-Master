@@ -14,6 +14,9 @@ import {
   Eye,
   BadgeCheck,
   ImageOff,
+  Image as ImageIcon,
+  Play,
+  Sticker,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,27 +61,65 @@ function formatDateLabel(t: number): string {
   });
 }
 
-function PhotoBlock({ url }: { url: string }) {
+function PhotoBlock({
+  url,
+  width,
+  height,
+}: {
+  url: string;
+  width: number | null;
+  height: number | null;
+}) {
+  const [load, setLoad] = useState(false);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
+
+  const ratio = width && height ? width / height : 4 / 3;
+  const w = 280;
+  const h = Math.round(w / ratio);
+
+  if (!load) {
+    return (
+      <button
+        type="button"
+        onClick={() => setLoad(true)}
+        className="group flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 p-4 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        style={{ width: w, height: h }}
+      >
+        <ImageIcon className="h-8 w-8" />
+        <span className="text-xs font-medium">Load photo</span>
+        {width && height && (
+          <span className="text-[10px] opacity-70">
+            {width} × {height}
+          </span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div className="relative overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
       {state === "loading" && (
-        <div className="flex aspect-video w-64 items-center justify-center">
+        <div
+          className="flex items-center justify-center"
+          style={{ width: w, height: h }}
+        >
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
       {state === "error" && (
-        <div className="flex aspect-video w-64 flex-col items-center justify-center gap-2 text-muted-foreground">
+        <div
+          className="flex flex-col items-center justify-center gap-2 text-muted-foreground"
+          style={{ width: w, height: h }}
+        >
           <ImageOff className="h-6 w-6" />
           <span className="text-[11px]">Could not load image</span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() => setState("loading")}
             className="text-[11px] text-primary underline"
           >
             Retry
-          </a>
+          </button>
         </div>
       )}
       <img
@@ -90,67 +131,155 @@ function PhotoBlock({ url }: { url: string }) {
           "max-h-96 max-w-full rounded-lg object-cover",
           state !== "loaded" && "hidden",
         )}
-        loading="lazy"
       />
     </div>
   );
 }
 
-function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
-  if (media.kind === "photo") {
-    return <PhotoBlock url={media.url} />;
-  }
+function VideoBlock({
+  media,
+}: {
+  media: Extract<MessageMedia, { kind: "video" }>;
+}) {
+  const [load, setLoad] = useState(false);
+  const ratio = media.width && media.height ? media.width / media.height : 16 / 9;
+  const w = 320;
+  const h = Math.round(w / ratio);
 
-  if (media.kind === "video") {
+  if (!load) {
     return (
       <div className="space-y-2">
-        <video
-          controls
-          preload="metadata"
-          src={media.url}
-          poster={media.thumbUrl ?? undefined}
-          className="max-h-96 w-full max-w-md rounded-lg bg-black"
-        />
+        <button
+          type="button"
+          onClick={() => setLoad(true)}
+          className="group relative flex items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+          style={{ width: w, height: h }}
+        >
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-background/80 shadow-md">
+              <Play className="h-6 w-6 fill-current" />
+            </div>
+            <span className="text-xs font-medium">Load video</span>
+            <span className="text-[10px] opacity-70">
+              {media.size ? formatBytes(media.size) : ""}
+              {media.duration ? ` · ${formatDuration(media.duration)}` : ""}
+            </span>
+          </div>
+        </button>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          {media.duration && <span>{formatDuration(media.duration)}</span>}
-          {media.size && <span>· {formatBytes(media.size)}</span>}
           {media.mimeType && (
             <Badge variant="outline" className="font-mono text-[10px]">
               {media.mimeType.replace("video/", "")}
             </Badge>
+          )}
+          {media.width && media.height && (
+            <span>
+              {media.width} × {media.height}
+            </span>
           )}
         </div>
       </div>
     );
   }
 
-  if (media.kind === "sticker") {
-    return (
-      <img
+  return (
+    <div className="space-y-2">
+      <video
+        controls
+        autoPlay
+        preload="metadata"
         src={media.url}
-        alt="Sticker"
-        className="h-32 w-32 object-contain"
-        loading="lazy"
+        className="max-h-96 w-full max-w-md rounded-lg bg-black"
       />
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        {media.duration && <span>{formatDuration(media.duration)}</span>}
+        {media.size && <span>· {formatBytes(media.size)}</span>}
+        {media.mimeType && (
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {media.mimeType.replace("video/", "")}
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StickerBlock({ url }: { url: string }) {
+  const [load, setLoad] = useState(false);
+  if (!load) {
+    return (
+      <button
+        type="button"
+        onClick={() => setLoad(true)}
+        className="flex h-32 w-32 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+      >
+        <Sticker className="h-7 w-7" />
+        <span className="text-[11px]">Load sticker</span>
+      </button>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt="Sticker"
+      className="h-32 w-32 object-contain"
+    />
+  );
+}
+
+function AudioBlock({
+  media,
+}: {
+  media: Extract<MessageMedia, { kind: "audio" | "voice" }>;
+  out: boolean;
+}) {
+  const [load, setLoad] = useState(false);
+  const Icon = media.kind === "voice" ? Mic : Music;
+  if (!load) {
+    return (
+      <button
+        type="button"
+        onClick={() => setLoad(true)}
+        className="flex items-center gap-3 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/40 px-3 py-2 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+      >
+        <Play className="h-4 w-4 fill-current" />
+        <Icon className="h-4 w-4" />
+        <span className="text-xs">
+          {media.kind === "voice" ? "Voice message" : "Audio"}
+          {media.duration ? ` · ${formatDuration(media.duration)}` : ""}
+          {media.size ? ` · ${formatBytes(media.size)}` : ""}
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-muted p-3">
+      <Icon className="h-5 w-5 shrink-0" />
+      <audio controls autoPlay src={media.url} className="h-8 max-w-[260px]" />
+      <span className="text-[11px] text-muted-foreground">
+        {formatDuration(media.duration)}
+      </span>
+    </div>
+  );
+}
+
+function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
+  if (media.kind === "photo") {
+    return (
+      <PhotoBlock url={media.url} width={media.width} height={media.height} />
     );
   }
 
+  if (media.kind === "video") {
+    return <VideoBlock media={media} />;
+  }
+
+  if (media.kind === "sticker") {
+    return <StickerBlock url={media.url} />;
+  }
+
   if (media.kind === "voice" || media.kind === "audio") {
-    const Icon = media.kind === "voice" ? Mic : Music;
-    return (
-      <div
-        className={cn(
-          "flex items-center gap-3 rounded-lg p-3",
-          out ? "bg-primary/20" : "bg-muted",
-        )}
-      >
-        <Icon className="h-5 w-5 shrink-0" />
-        <audio controls src={media.url} className="h-8 max-w-[260px]" />
-        <span className="text-[11px] text-muted-foreground">
-          {formatDuration(media.duration)}
-        </span>
-      </div>
-    );
+    return <AudioBlock media={media} out={out} />;
   }
 
   if (media.kind === "document") {
