@@ -12,19 +12,50 @@ if (!apiId || !apiHash) {
   process.exit(1);
 }
 
+console.log(`\nUsing TELEGRAM_API_ID = ${apiId} (length of API_HASH = ${apiHash.length})`);
+if (apiHash.length !== 32) {
+  console.warn(
+    "WARNING: TELEGRAM_API_HASH is not 32 characters long. It is usually a 32-char hex string. Double-check it on https://my.telegram.org/apps.",
+  );
+}
+
 async function main() {
   const session = new StringSession("");
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 5,
   });
 
-  console.log("\nLogging into Telegram as a user...\n");
+  // Verbose gramjs logging so we can see code-send requests / errors
+  client.setLogLevel("info" as never);
+
+  console.log("\nLogging into Telegram as a user...");
+  console.log("Tip: if you have Telegram open on another device, the code is sent");
+  console.log("     IN-APP from the official 'Telegram' chat, not via SMS.\n");
+
+  const forceSMS = await input.confirm(
+    "Force the code to be sent via SMS instead of the Telegram app? (recommended if you can't find an in-app code) ",
+  );
 
   await client.start({
-    phoneNumber: async () => await input.text("Phone number (e.g. +14155551234): "),
+    phoneNumber: async () => {
+      const raw = await input.text("Phone number with country code (e.g. +14155551234): ");
+      const trimmed = raw.trim();
+      if (!trimmed.startsWith("+")) {
+        console.warn(`WARNING: phone number "${trimmed}" doesn't start with '+'. Telegram requires the leading '+' and full country code.`);
+      }
+      return trimmed;
+    },
     password: async () => await input.text("2FA password (leave blank if none): "),
-    phoneCode: async () => await input.text("Code from Telegram: "),
-    onError: (err) => console.error("Auth error:", err),
+    phoneCode: async () => {
+      console.log(
+        "\nA code request has been sent. Check the Telegram app on another device first, then SMS.",
+      );
+      return await input.text("Code from Telegram: ");
+    },
+    forceSMS,
+    onError: (err) => {
+      console.error("\nAuth error:", err);
+    },
   });
 
   const sessionString = client.session.save() as unknown as string;
@@ -41,6 +72,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error("\nLogin failed:", err);
   process.exit(1);
 });
