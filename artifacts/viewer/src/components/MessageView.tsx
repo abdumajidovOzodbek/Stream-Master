@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Dialog, type Message, type MessageMedia } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
+import { Composer } from "./Composer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -595,6 +596,8 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
           </div>
         )}
       </div>
+
+      <Composer chatId={dialog.id} chatType={dialog.type} />
     </div>
   );
 }

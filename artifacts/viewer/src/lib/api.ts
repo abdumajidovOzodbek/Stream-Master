@@ -83,6 +83,22 @@ async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function postJson<T>(url: string, payload: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
 export const api = {
   me: () => get<Me>("/api/me"),
   dialogs: (limit = 100) =>
@@ -93,4 +109,10 @@ export const api = {
     return get<{ chatId: string; messages: Message[] }>(`/api/messages?${p}`);
   },
   photoUrl: (peerId: string) => `/api/photo/${encodeURIComponent(peerId)}`,
+  sendMessage: (chatId: string, text: string, replyToMsgId?: number) =>
+    postJson<{ id: number; date: number }>("/api/messages", {
+      chatId,
+      text,
+      ...(replyToMsgId ? { replyToMsgId } : {}),
+    }),
 };

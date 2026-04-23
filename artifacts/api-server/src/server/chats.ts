@@ -6,6 +6,7 @@ import {
   listMessages,
   getProfilePhoto,
   getMessageMedia,
+  sendChatMessage,
 } from "../telegram/chats";
 
 const router: IRouter = Router();
@@ -67,6 +68,26 @@ router.get("/messages", async (req: Request, res: Response) => {
     res.json(result);
   } catch (err) {
     handleError(req, res, err, "Failed to fetch messages");
+  }
+});
+
+router.post("/messages", async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as {
+    chatId?: string;
+    text?: string;
+    replyToMsgId?: number;
+  };
+  const chatId = body.chatId?.trim();
+  const text = body.text;
+  if (!chatId || !text || !text.trim()) {
+    res.status(400).json({ error: "chatId and text are required" });
+    return;
+  }
+  try {
+    const result = await sendChatMessage(chatId, text, body.replyToMsgId);
+    res.json(result);
+  } catch (err) {
+    handleError(req, res, err, "Failed to send message");
   }
 });
 

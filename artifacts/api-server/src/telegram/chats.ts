@@ -405,6 +405,22 @@ export async function getProfilePhoto(
   return { filePath };
 }
 
+export async function sendChatMessage(
+  chatId: string,
+  text: string,
+  replyToMsgId?: number,
+): Promise<{ id: number; date: number }> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Message text is empty");
+  const { entity } = await resolveEntity(chatId);
+  const client = await getTelegramClient();
+  const sent = (await client.sendMessage(entity, {
+    message: trimmed,
+    ...(replyToMsgId ? { replyTo: replyToMsgId } : {}),
+  })) as Api.Message;
+  return { id: sent.id, date: sent.date };
+}
+
 export async function getMessageMedia(
   chatId: string,
   messageId: number,
