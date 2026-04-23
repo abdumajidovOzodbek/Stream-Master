@@ -49,7 +49,6 @@ async function main() {
       );
       return await input.text("Code from Telegram: ");
     },
-    forceSMS,
     onError: (err) => {
       console.error("\nAuth error:", err);
     },
