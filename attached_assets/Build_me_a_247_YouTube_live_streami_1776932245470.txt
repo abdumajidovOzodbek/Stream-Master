@@ -1,0 +1,59 @@
+Build a Node.js application that logs into Telegram as a user (not a bot) using the MTProto API and allows accessing media from channels the user has joined.
+
+Requirements:
+
+1. Use a Node.js Telegram MTProto client library such as gramJS.
+
+2. Implement authentication using phone number, code verification, and session saving (StringSession).
+
+3. After login, fetch messages from a specified Telegram channel (by username or ID).
+
+4. Detect messages containing video files.
+
+5. Extract and display metadata for each video:
+
+   * message ID
+   * file size
+   * duration
+   * mime type
+
+6. Implement functionality to download video files locally using Telegram API methods.
+
+7. Build a simple Express.js server that:
+
+   * serves downloaded videos from a /videos endpoint
+   * generates accessible HTTP URLs like http://localhost:3000/videos/{filename}.mp4
+
+8. Add an API endpoint:
+   GET /channel-videos?channel=username
+   which returns a JSON list of videos with:
+
+   * message ID
+   * generated local URL
+   * metadata
+
+9. Structure the project cleanly:
+
+   * /auth (login logic)
+   * /telegram (client + fetching logic)
+   * /server (Express routes)
+   * /storage (downloaded videos)
+
+10. Handle errors properly:
+
+* invalid login
+* private channel access issues
+* missing media
+
+11. Optimize:
+
+* avoid re-downloading existing files
+* use async/await
+* include logging
+
+Goal:
+Create a system that mimics “video URL access” by downloading Telegram videos and serving them via a custom backend.
+
+Do NOT attempt to scrape or generate direct Telegram CDN links, as they are not publicly accessible.
+
+Provide full working code with clear setup instructions.
