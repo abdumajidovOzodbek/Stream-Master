@@ -27,7 +27,7 @@ router.get("/channel-videos", async (req: Request, res: Response) => {
   }
 
   const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 100);
-  const download = req.query["download"] !== "false";
+  const download = req.query["download"] === "true";
 
   const protoHeader = req.headers["x-forwarded-proto"];
   const proto = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || req.protocol;

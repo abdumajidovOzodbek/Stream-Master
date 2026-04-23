@@ -19,6 +19,7 @@ export interface VideoMetadata {
 
 export interface VideoEntry extends VideoMetadata {
   url: string;
+  telegramUrl: string;
   downloaded: boolean;
 }
 
@@ -117,11 +118,12 @@ export async function fetchAndPrepareChannelVideos(
   channel: string,
   baseUrl: string,
   limit = 20,
-  download = true,
+  download = false,
 ): Promise<VideoEntry[]> {
   await ensureStorageDir();
   const metas = await listChannelVideos(channel, limit);
   const entries: VideoEntry[] = [];
+  const channelHandle = channel.replace(/^@/, "");
 
   for (const meta of metas) {
     const filePath = path.join(STORAGE_DIR, meta.fileName);
@@ -138,6 +140,7 @@ export async function fetchAndPrepareChannelVideos(
 
     entries.push({
       ...meta,
+      telegramUrl: `https://t.me/${channelHandle}/${meta.messageId}`,
       url: `${baseUrl}/api/videos/${meta.fileName}`,
       downloaded,
     });
