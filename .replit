@@ -26,3 +26,8 @@ externalPort = 8080
 [[ports]]
 localPort = 8081
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_SESSION = "1AgAOMTQ5LjE1NC4xNjcuNDEBu0I/XWP9BE86fAceZgFNiMMns1yQYGBqpU9DNOLqGCeohuXGhhaQucqDJVX4VBRwqtRGq/1ahR4Die63r9ItiSI+buT+QqHmnA9AOgQRyyNq1expx6RxjHjOmQgNTjhdafixgX0J3Gjts+ZGXkW25S3LNMP0zG5yM8erZldDXjlDqsBnWy9UDXAUr8e10hWLqnNRgqxYvhgJY1Sp/XCgfrrZR0bLIvw1nten/zLdNCykypnzd8mOAZlJjqQz/FZGbi2yxUvQSsQHb5lIVFlgzX6gLrM9pzMjlxiKwjq9Q1Prvtl+lD7wMpUX14oGS4rKuuLxyVDxNZgm+dXu06Wgoc4="
