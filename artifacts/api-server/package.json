@@ -7,6 +7,7 @@
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
+    "login": "tsx src/auth/login.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -16,8 +17,10 @@
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "input": "^1.0.1",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "telegram": "^2.26.22"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
@@ -27,6 +30,7 @@
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
-    "thread-stream": "3.1.0"
+    "thread-stream": "3.1.0",
+    "tsx": "catalog:"
   }
 }
