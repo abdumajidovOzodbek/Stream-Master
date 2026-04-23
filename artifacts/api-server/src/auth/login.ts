@@ -30,11 +30,8 @@ async function main() {
 
   console.log("\nLogging into Telegram as a user...");
   console.log("Tip: if you have Telegram open on another device, the code is sent");
-  console.log("     IN-APP from the official 'Telegram' chat, not via SMS.\n");
-
-  const forceSMS = await input.confirm(
-    "Force the code to be sent via SMS instead of the Telegram app? (recommended if you can't find an in-app code) ",
-  );
+  console.log("     IN-APP from the official 'Telegram' chat, not via SMS.");
+  console.log("     If no other device is signed in, Telegram will fall back to SMS automatically.\n");
 
   await client.start({
     phoneNumber: async () => {
