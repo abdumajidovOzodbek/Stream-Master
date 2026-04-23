@@ -172,6 +172,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      big-integer:
+        specifier: ^1.6.52
+        version: 1.6.52
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7

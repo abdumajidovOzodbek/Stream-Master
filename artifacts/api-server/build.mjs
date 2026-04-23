@@ -32,6 +32,7 @@ async function buildAll() {
       "telegram",
       "telegram/*",
       "input",
+      "big-integer",
       "sharp",
       "better-sqlite3",
       "sqlite3",
