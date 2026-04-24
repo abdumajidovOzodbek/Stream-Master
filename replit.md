@@ -36,3 +36,19 @@ The API server logs into Telegram as a user via gramjs (MTProto), fetches videos
 See `artifacts/api-server/README.md` for full setup steps.
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Replit Environment Setup (April 2026 import)
+
+This project was imported from GitHub and configured to run in Replit:
+
+- **Workflows**:
+  - `Start application` (webview): runs the viewer (Vite) on `PORT=5000`, `BASE_PATH=/`. Vite proxies `/api` → `http://127.0.0.1:8000` so the frontend can call the backend during development.
+  - `API Server` (console): runs the Express api-server on `PORT=8000`. It builds with esbuild then runs the bundled `dist/index.mjs`.
+- **Vite dev server**: `host: "0.0.0.0"`, `allowedHosts: true`, and no-cache headers so the Replit iframe proxy works correctly.
+- **Required secrets** (configured via Replit Secrets):
+  - `TELEGRAM_API_ID` — numeric, from https://my.telegram.org/apps
+  - `TELEGRAM_API_HASH` — 32-char hex, from https://my.telegram.org/apps
+  - `TELEGRAM_SESSION` — saved gramjs StringSession (or empty/placeholder; users can log in via the web UI)
+- **Database**: `DATABASE_URL` is provided by Replit's managed PostgreSQL.
+- **Logging in**: if the saved session is invalid (`AUTH_KEY_UNREGISTERED`), use the web UI's Login screen to authenticate with phone + code, which creates a fresh session in `artifacts/api-server/storage/session.txt`.
+- **Deployment**: `.replit` is preconfigured for autoscale via the artifact router; per-service production builds live in each `artifacts/*/.replit-artifact/artifact.toml`.
