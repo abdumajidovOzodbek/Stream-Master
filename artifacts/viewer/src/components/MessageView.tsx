@@ -286,7 +286,7 @@ function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
   if (media.kind === "document") {
     return (
       <a
-        href={media.url}
+        href={`${media.url}${media.url.includes("?") ? "&" : "?"}download=1`}
         download={media.fileName}
         className={cn(
           "flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-muted/80",

@@ -1,11 +1,10 @@
 import { Api } from "telegram";
 import path from "node:path";
-import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { getTelegramClient } from "./client";
 import { logger } from "../lib/logger";
 
-export const STORAGE_DIR: string = path.resolve(process.cwd(), "storage");
+// Channel videos are streamed directly from Telegram to the client. Nothing is
+// persisted on the server filesystem.
 
 export interface VideoMetadata {
   messageId: number;
@@ -21,10 +20,6 @@ export interface VideoEntry extends VideoMetadata {
   url: string;
   telegramUrl: string;
   downloaded: boolean;
-}
-
-async function ensureStorageDir(): Promise<void> {
-  await fs.mkdir(STORAGE_DIR, { recursive: true });
 }
 
 function extractVideoMeta(message: Api.Message): VideoMetadata | null {
@@ -85,11 +80,17 @@ export async function listChannelVideos(
   return videos;
 }
 
-export async function downloadVideo(
+export interface VideoStream {
+  buffer: Buffer;
+  mimeType: string | null;
+  fileName: string;
+  meta: VideoMetadata;
+}
+
+export async function streamChannelVideo(
   channel: string,
   messageId: number,
-): Promise<{ filePath: string; meta: VideoMetadata } | null> {
-  await ensureStorageDir();
+): Promise<VideoStream | null> {
   const client = await getTelegramClient();
   const entity = await client.getEntity(channel);
   const messages = await client.getMessages(entity, { ids: [messageId] });
@@ -99,52 +100,14 @@ export async function downloadVideo(
   const meta = extractVideoMeta(message);
   if (!meta) return null;
 
-  const filePath = path.join(STORAGE_DIR, meta.fileName);
-  if (existsSync(filePath)) {
-    logger.info({ filePath }, "Video already downloaded, skipping");
-    return { filePath, meta };
-  }
+  logger.info({ messageId, fileName: meta.fileName }, "Streaming video from Telegram");
+  const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
+  if (!buffer || buffer.length === 0) return null;
 
-  logger.info({ messageId, fileName: meta.fileName }, "Downloading video");
-  const buffer = await client.downloadMedia(message, {});
-  if (!buffer) return null;
-
-  await fs.writeFile(filePath, buffer as Buffer);
-  logger.info({ filePath, size: (buffer as Buffer).length }, "Video downloaded");
-  return { filePath, meta };
-}
-
-export async function fetchAndPrepareChannelVideos(
-  channel: string,
-  baseUrl: string,
-  limit = 20,
-  download = false,
-): Promise<VideoEntry[]> {
-  await ensureStorageDir();
-  const metas = await listChannelVideos(channel, limit);
-  const entries: VideoEntry[] = [];
-  const channelHandle = channel.replace(/^@/, "");
-
-  for (const meta of metas) {
-    const filePath = path.join(STORAGE_DIR, meta.fileName);
-    let downloaded = existsSync(filePath);
-
-    if (download && !downloaded) {
-      try {
-        const result = await downloadVideo(channel, meta.messageId);
-        downloaded = !!result;
-      } catch (err) {
-        logger.error({ err, messageId: meta.messageId }, "Failed to download video");
-      }
-    }
-
-    entries.push({
-      ...meta,
-      telegramUrl: `https://t.me/${channelHandle}/${meta.messageId}`,
-      url: `${baseUrl}/api/videos/${meta.fileName}`,
-      downloaded,
-    });
-  }
-
-  return entries;
+  return {
+    buffer,
+    mimeType: meta.mimeType,
+    fileName: meta.fileName,
+    meta,
+  };
 }

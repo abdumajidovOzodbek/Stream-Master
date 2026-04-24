@@ -1,10 +1,7 @@
 import { Api } from "telegram";
 import bigInt from "big-integer";
 import path from "node:path";
-import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { getTelegramClient } from "./client";
-import { STORAGE_DIR } from "./videos";
 import { logger } from "../lib/logger";
 
 export interface DialogEntry {
@@ -92,13 +89,9 @@ export interface MeInfo {
   phone: string | null;
 }
 
-const PHOTO_DIR = path.join(STORAGE_DIR, "photos");
-const MEDIA_DIR = path.join(STORAGE_DIR, "media");
-
-async function ensureDirs(): Promise<void> {
-  await fs.mkdir(PHOTO_DIR, { recursive: true });
-  await fs.mkdir(MEDIA_DIR, { recursive: true });
-}
+// Profile photos and message media are streamed directly from Telegram to the
+// HTTP response without ever touching the server filesystem. No PHOTO_DIR or
+// MEDIA_DIR — nothing is persisted server-side for user media.
 
 function bigToString(v: unknown): string {
   if (v == null) return "";
@@ -378,12 +371,7 @@ export async function listMessages(
 
 export async function getProfilePhoto(
   peerId: string,
-): Promise<{ filePath: string } | null> {
-  await ensureDirs();
-  const safe = peerId.replace(/[^a-zA-Z0-9_-]/g, "");
-  const filePath = path.join(PHOTO_DIR, `${safe}.jpg`);
-  if (existsSync(filePath)) return { filePath };
-
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
   const client = await getTelegramClient();
   let entity: unknown;
   try {
@@ -401,8 +389,7 @@ export async function getProfilePhoto(
     isBig: false,
   })) as Buffer | undefined;
   if (!buffer || buffer.length === 0) return null;
-  await fs.writeFile(filePath, buffer);
-  return { filePath };
+  return { buffer, mimeType: "image/jpeg" };
 }
 
 export async function sendChatMessage(
@@ -421,26 +408,18 @@ export async function sendChatMessage(
   return { id: sent.id, date: sent.date };
 }
 
+export interface MediaStream {
+  buffer: Buffer;
+  mimeType: string | null;
+  fileName: string | null;
+  size: number;
+}
+
 export async function getMessageMedia(
   chatId: string,
   messageId: number,
   thumb: boolean,
-): Promise<{ filePath: string; mimeType: string | null } | null> {
-  await ensureDirs();
-  const safeChat = chatId.replace(/[^a-zA-Z0-9_-]/g, "");
-  const suffix = thumb ? "_thumb.jpg" : "";
-
-  // Try cached first
-  if (thumb) {
-    const cached = path.join(MEDIA_DIR, `${safeChat}_${messageId}${suffix}`);
-    if (existsSync(cached)) return { filePath: cached, mimeType: "image/jpeg" };
-  } else {
-    for (const ext of [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".MP4", ".mov", ".webm", ".ogg", ".mp3", ".m4a", ".bin"]) {
-      const candidate = path.join(MEDIA_DIR, `${safeChat}_${messageId}${ext}`);
-      if (existsSync(candidate)) return { filePath: candidate, mimeType: null };
-    }
-  }
-
+): Promise<MediaStream | null> {
   const { entity } = await resolveEntity(chatId);
   const client = await getTelegramClient();
   const messages = await client.getMessages(entity, { ids: [messageId] });
@@ -449,16 +428,20 @@ export async function getMessageMedia(
 
   if (thumb) {
     const buffer = (await client.downloadMedia(message, { thumb: 0 })) as Buffer | undefined;
-    if (!buffer) return null;
-    const filePath = path.join(MEDIA_DIR, `${safeChat}_${messageId}${suffix}`);
-    await fs.writeFile(filePath, buffer);
-    return { filePath, mimeType: "image/jpeg" };
+    if (!buffer || buffer.length === 0) return null;
+    return {
+      buffer,
+      mimeType: "image/jpeg",
+      fileName: `thumb_${messageId}.jpg`,
+      size: buffer.length,
+    };
   }
 
-  // Determine extension
+  // Determine filename and mime type from the message metadata
   const media = message.media;
   let ext = ".bin";
   let mimeType: string | null = null;
+  let originalName: string | null = null;
   if (media instanceof Api.MessageMediaPhoto) {
     ext = ".jpg";
     mimeType = "image/jpeg";
@@ -468,6 +451,7 @@ export async function getMessageMedia(
       (a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename,
     );
     if (fileAttr?.fileName) {
+      originalName = fileAttr.fileName;
       const e = path.extname(fileAttr.fileName);
       if (e) ext = e;
     } else if (mimeType === "video/mp4") ext = ".mp4";
@@ -476,17 +460,16 @@ export async function getMessageMedia(
     else if (mimeType === "audio/mpeg") ext = ".mp3";
   }
 
-  const filePath = path.join(MEDIA_DIR, `${safeChat}_${messageId}${ext}`);
-  logger.info({ chatId, messageId, filePath }, "Downloading media");
+  const fileName = originalName ?? `media_${messageId}${ext}`;
+
+  logger.info({ chatId, messageId, fileName }, "Streaming media from Telegram");
   try {
     const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
     if (!buffer || buffer.length === 0) {
       logger.warn({ chatId, messageId }, "Empty media download");
       return null;
     }
-    await fs.writeFile(filePath, buffer);
-    logger.info({ chatId, messageId, size: buffer.length }, "Media downloaded");
-    return { filePath, mimeType };
+    return { buffer, mimeType, fileName, size: buffer.length };
   } catch (err) {
     logger.error({ err, chatId, messageId }, "Media download failed");
     throw err;

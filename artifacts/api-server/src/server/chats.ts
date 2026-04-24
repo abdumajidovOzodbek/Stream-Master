@@ -1,5 +1,4 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { existsSync } from "node:fs";
 import {
   getMe,
   listDialogs,
@@ -100,12 +99,14 @@ router.get("/photo/:peerId", async (req: Request, res: Response) => {
   }
   try {
     const result = await getProfilePhoto(peerId);
-    if (!result || !existsSync(result.filePath)) {
+    if (!result) {
       res.status(404).json({ error: "No profile photo" });
       return;
     }
     res.setHeader("Cache-Control", "public, max-age=86400");
-    res.sendFile(result.filePath);
+    res.setHeader("Content-Type", result.mimeType);
+    res.setHeader("Content-Length", String(result.buffer.length));
+    res.end(result.buffer);
   } catch (err) {
     handleError(req, res, err, "Failed to fetch profile photo");
   }
@@ -117,6 +118,7 @@ router.get("/media/:chatId/:msgId", async (req: Request, res: Response) => {
   const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
   const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
   const thumb = req.query["thumb"] === "1";
+  const forceDownload = req.query["download"] === "1";
   if (!chatId || !Number.isFinite(msgId)) {
     res.status(400).json({ error: "Invalid chatId or msgId" });
     return;
@@ -127,9 +129,16 @@ router.get("/media/:chatId/:msgId", async (req: Request, res: Response) => {
       res.status(404).json({ error: "Media not found" });
       return;
     }
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", "private, max-age=300");
     if (result.mimeType) res.setHeader("Content-Type", result.mimeType);
-    res.sendFile(result.filePath);
+    res.setHeader("Content-Length", String(result.size));
+    if (forceDownload && result.fileName) {
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${encodeURIComponent(result.fileName)}"`,
+      );
+    }
+    res.end(result.buffer);
   } catch (err) {
     handleError(req, res, err, "Failed to fetch media");
   }
