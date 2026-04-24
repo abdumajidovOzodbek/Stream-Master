@@ -23,7 +23,7 @@ function baseUrlFromReq(req: Request): string {
 function handleError(req: Request, res: Response, err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : String(err);
   req.log.error({ err }, fallback);
-  if (/TELEGRAM_SESSION/i.test(message)) {
+  if (/TELEGRAM_SESSION|NOT_LOGGED_IN|AUTH_KEY_UNREGISTERED|SESSION_REVOKED/i.test(message)) {
     res.status(401).json({ error: "Not logged in", detail: message });
     return;
   }

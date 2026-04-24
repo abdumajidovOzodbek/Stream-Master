@@ -115,4 +115,22 @@ export const api = {
       text,
       ...(replyToMsgId ? { replyToMsgId } : {}),
     }),
+  authStatus: () =>
+    get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
+  sendCode: (phone: string) =>
+    postJson<{ phoneCodeHash: string; isCodeViaApp: boolean }>(
+      "/api/auth/send-code",
+      { phone },
+    ),
+  signIn: (params: {
+    phone: string;
+    phoneCodeHash: string;
+    code: string;
+    password?: string;
+  }) =>
+    postJson<{ ok: boolean; needsPassword?: boolean }>(
+      "/api/auth/sign-in",
+      params,
+    ),
+  logout: () => postJson<{ ok: true }>("/api/auth/logout", {}),
 };
