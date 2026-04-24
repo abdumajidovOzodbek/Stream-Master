@@ -90,6 +90,7 @@ export interface Message {
   text: string;
   fromId: string | null;
   fromName: string | null;
+  senderHasPhoto: boolean;
   replyToMsgId: number | null;
   replyTo: ReplyPreview | null;
   fwdFrom: ForwardInfo | null;

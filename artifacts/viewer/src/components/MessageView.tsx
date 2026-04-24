@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Dialog, type Message, type MessageMedia } from "@/lib/api";
-import { ChatAvatar } from "./Avatar";
+import { ChatAvatar, senderTextColor } from "./Avatar";
 import { Composer } from "./Composer";
 import { PhotoLightbox } from "./PhotoLightbox";
 import { Button } from "@/components/ui/button";
@@ -421,6 +421,7 @@ function MessageStatus({
 function MessageBubble({
   msg,
   showAvatar,
+  showName,
   dialog,
   onReply,
   onJump,
@@ -430,6 +431,7 @@ function MessageBubble({
 }: {
   msg: Message;
   showAvatar: boolean;
+  showName: boolean;
   dialog: Dialog;
   onReply: (m: Message) => void;
   onJump: (id: number) => void;
@@ -439,8 +441,12 @@ function MessageBubble({
 }) {
   const out = msg.out;
   const isChannel = dialog.type === "channel";
+  const isGroup = dialog.type === "chat";
+  // Only fall back to dialog title for non-group chats (DMs/channels). In a
+  // group, falling back would label every unknown message with the group name.
   const senderId = msg.fromId ?? dialog.id;
-  const senderName = msg.fromName ?? dialog.title;
+  const senderName = msg.fromName ?? (isGroup ? "Unknown" : dialog.title);
+  const nameColor = senderTextColor(senderId);
 
   return (
     <div
@@ -457,7 +463,7 @@ function MessageBubble({
             <ChatAvatar
               peerId={senderId}
               title={senderName}
-              hasPhoto={false}
+              hasPhoto={msg.senderHasPhoto}
               size={32}
             />
           )}
@@ -487,8 +493,11 @@ function MessageBubble({
           <Reply className="h-3.5 w-3.5" />
         </button>
 
-        {!out && !isChannel && showAvatar && (
-          <div className="mb-1 text-xs font-medium text-primary">
+        {!out && !isChannel && showName && (
+          <div
+            className={cn("mb-1 text-xs font-semibold", nameColor)}
+            data-testid={`sender-name-${msg.id}`}
+          >
             {senderName}
           </div>
         )}
@@ -783,13 +792,25 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
             )}
             {allMessages.map((m, i) => {
               const prev = allMessages[i - 1];
+              const next = allMessages[i + 1];
               const showDate =
                 !prev ||
                 new Date(prev.date * 1000).toDateString() !==
                   new Date(m.date * 1000).toDateString();
-              const sameSender =
-                prev && prev.fromId === m.fromId && prev.out === m.out;
-              const showAvatar = !sameSender;
+              // Sender name shows at the TOP of a run (first message from a
+              // given sender), so compare against the previous (older) message.
+              // Date separator also resets a run visually.
+              const sameAsPrev =
+                !showDate &&
+                prev &&
+                prev.fromId === m.fromId &&
+                prev.out === m.out;
+              const showName = !sameAsPrev;
+              // Avatar shows at the BOTTOM of a run (last message from a given
+              // sender), so compare against the next (newer) message.
+              const sameAsNext =
+                next && next.fromId === m.fromId && next.out === m.out;
+              const showAvatar = !sameAsNext;
               return (
                 <div key={m.id}>
                   {showDate && (
@@ -802,6 +823,7 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
                   <MessageBubble
                     msg={m}
                     showAvatar={showAvatar}
+                    showName={showName}
                     dialog={dialog}
                     onReply={setReplyTo}
                     onJump={handleJump}

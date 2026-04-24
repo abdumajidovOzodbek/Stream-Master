@@ -56,6 +56,8 @@ export interface MessageEntry {
   text: string;
   fromId: string | null;
   fromName: string | null;
+  /** Whether the sender has a profile photo (for avatar rendering). */
+  senderHasPhoto: boolean;
   replyToMsgId: number | null;
   replyTo: ReplyPreview | null;
   fwdFrom: ForwardInfo | null;
@@ -453,6 +455,7 @@ export async function listMessages(
 
     const sender = (m as unknown as { sender?: unknown }).sender;
     const fromName = sender ? entityTitle(sender) : null;
+    const senderHasPhoto = !!(sender as { photo?: unknown } | undefined)?.photo;
 
     const replyToMsgId =
       m.replyTo instanceof Api.MessageReplyHeader
@@ -469,6 +472,7 @@ export async function listMessages(
       text: m.message ?? "",
       fromId,
       fromName,
+      senderHasPhoto,
       replyToMsgId,
       replyTo,
       fwdFrom: fwdFromInfo(m),
