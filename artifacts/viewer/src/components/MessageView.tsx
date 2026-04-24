@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Dialog, type Message, type MessageMedia } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
 import { Composer } from "./Composer";
+import { PhotoLightbox } from "./PhotoLightbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -18,8 +19,15 @@ import {
   Image as ImageIcon,
   Play,
   Sticker,
+  Reply,
+  CornerUpLeft,
+  Forward,
+  Pencil,
+  Check,
+  CheckCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatPresence, summarizeReply } from "@/lib/format";
 
 const PAGE_SIZE = 50;
 
@@ -66,10 +74,12 @@ function PhotoBlock({
   url,
   width,
   height,
+  onOpenLightbox,
 }: {
   url: string;
   width: number | null;
   height: number | null;
+  onOpenLightbox: (url: string) => void;
 }) {
   const [load, setLoad] = useState(false);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
@@ -128,8 +138,9 @@ function PhotoBlock({
         alt="Photo"
         onLoad={() => setState("loaded")}
         onError={() => setState("error")}
+        onClick={() => state === "loaded" && onOpenLightbox(url)}
         className={cn(
-          "max-h-96 max-w-full rounded-lg object-cover",
+          "max-h-96 max-w-full cursor-zoom-in rounded-lg object-cover transition-opacity hover:opacity-95",
           state !== "loaded" && "hidden",
         )}
       />
@@ -219,13 +230,7 @@ function StickerBlock({ url }: { url: string }) {
       </button>
     );
   }
-  return (
-    <img
-      src={url}
-      alt="Sticker"
-      className="h-32 w-32 object-contain"
-    />
-  );
+  return <img src={url} alt="Sticker" className="h-32 w-32 object-contain" />;
 }
 
 function AudioBlock({
@@ -264,21 +269,28 @@ function AudioBlock({
   );
 }
 
-function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
+function MediaBlock({
+  media,
+  out,
+  onOpenLightbox,
+}: {
+  media: MessageMedia;
+  out: boolean;
+  onOpenLightbox: (url: string) => void;
+}) {
   if (media.kind === "photo") {
     return (
-      <PhotoBlock url={media.url} width={media.width} height={media.height} />
+      <PhotoBlock
+        url={media.url}
+        width={media.width}
+        height={media.height}
+        onOpenLightbox={onOpenLightbox}
+      />
     );
   }
 
-  if (media.kind === "video") {
-    return <VideoBlock media={media} />;
-  }
-
-  if (media.kind === "sticker") {
-    return <StickerBlock url={media.url} />;
-  }
-
+  if (media.kind === "video") return <VideoBlock media={media} />;
+  if (media.kind === "sticker") return <StickerBlock url={media.url} />;
   if (media.kind === "voice" || media.kind === "audio") {
     return <AudioBlock media={media} out={out} />;
   }
@@ -341,14 +353,89 @@ function MediaBlock({ media, out }: { media: MessageMedia; out: boolean }) {
   return null;
 }
 
+function ReplyPreviewBlock({
+  reply,
+  out,
+  onJump,
+}: {
+  reply: NonNullable<Message["replyTo"]>;
+  out: boolean;
+  onJump: (id: number) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onJump(reply.id)}
+      className={cn(
+        "mb-1 flex w-full max-w-full items-start gap-2 overflow-hidden rounded-md border-l-2 px-2 py-1 text-left transition-colors",
+        out
+          ? "border-white/70 bg-white/10 hover:bg-white/15"
+          : "border-primary bg-primary/10 hover:bg-primary/15",
+      )}
+      data-testid={`reply-preview-${reply.id}`}
+    >
+      <CornerUpLeft
+        className={cn(
+          "mt-0.5 h-3 w-3 shrink-0",
+          out ? "text-primary-foreground/80" : "text-primary",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            "truncate text-[11px] font-medium",
+            out ? "text-primary-foreground" : "text-primary",
+          )}
+        >
+          {reply.senderName ?? "Message"}
+        </div>
+        <div
+          className={cn(
+            "truncate text-[11px]",
+            out ? "text-primary-foreground/80" : "text-muted-foreground",
+          )}
+        >
+          {summarizeReply(reply.text, reply.hasMedia)}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MessageStatus({
+  msg,
+  readOutboxMaxId,
+}: {
+  msg: Message;
+  readOutboxMaxId: number | null;
+}) {
+  if (!msg.out) return null;
+  const isRead = readOutboxMaxId != null && msg.id <= readOutboxMaxId;
+  return isRead ? (
+    <CheckCheck className="h-3.5 w-3.5" data-testid={`status-read-${msg.id}`} />
+  ) : (
+    <Check className="h-3.5 w-3.5" data-testid={`status-sent-${msg.id}`} />
+  );
+}
+
 function MessageBubble({
   msg,
   showAvatar,
   dialog,
+  onReply,
+  onJump,
+  onOpenLightbox,
+  highlight,
+  registerRef,
 }: {
   msg: Message;
   showAvatar: boolean;
   dialog: Dialog;
+  onReply: (m: Message) => void;
+  onJump: (id: number) => void;
+  onOpenLightbox: (url: string) => void;
+  highlight: boolean;
+  registerRef: (id: number, el: HTMLDivElement | null) => void;
 }) {
   const out = msg.out;
   const isChannel = dialog.type === "channel";
@@ -357,9 +444,11 @@ function MessageBubble({
 
   return (
     <div
+      ref={(el) => registerRef(msg.id, el)}
       className={cn(
-        "flex items-end gap-2",
+        "group flex items-end gap-2 transition-colors",
         out ? "justify-end" : "justify-start",
+        highlight && "rounded-lg bg-primary/10",
       )}
     >
       {!out && !isChannel && (
@@ -376,21 +465,61 @@ function MessageBubble({
       )}
       <div
         className={cn(
-          "max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+          "relative max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
           out
             ? "rounded-br-sm bg-primary text-primary-foreground"
             : "rounded-bl-sm bg-card",
           isChannel && !out && "max-w-[85%]",
         )}
       >
+        {/* Hover reply action */}
+        <button
+          type="button"
+          onClick={() => onReply(msg)}
+          aria-label="Reply"
+          className={cn(
+            "absolute -top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100",
+            "flex h-7 w-7 items-center justify-center rounded-full bg-card text-foreground border",
+            out ? "-left-9" : "-right-9",
+          )}
+          data-testid={`button-reply-${msg.id}`}
+        >
+          <Reply className="h-3.5 w-3.5" />
+        </button>
+
         {!out && !isChannel && showAvatar && (
           <div className="mb-1 text-xs font-medium text-primary">
             {senderName}
           </div>
         )}
+
+        {msg.fwdFrom && (
+          <div
+            className={cn(
+              "mb-1 flex items-center gap-1 text-[11px] italic",
+              out ? "text-primary-foreground/80" : "text-muted-foreground",
+            )}
+            data-testid={`forwarded-${msg.id}`}
+          >
+            <Forward className="h-3 w-3" />
+            <span>
+              Forwarded
+              {msg.fwdFrom.fromName ? ` from ${msg.fwdFrom.fromName}` : ""}
+            </span>
+          </div>
+        )}
+
+        {msg.replyTo && (
+          <ReplyPreviewBlock reply={msg.replyTo} out={out} onJump={onJump} />
+        )}
+
         {msg.media && (
           <div className={cn("mb-1", !msg.text && "mb-0")}>
-            <MediaBlock media={msg.media} out={out} />
+            <MediaBlock
+              media={msg.media}
+              out={out}
+              onOpenLightbox={onOpenLightbox}
+            />
           </div>
         )}
         {msg.text && (
@@ -402,6 +531,16 @@ function MessageBubble({
             out ? "text-primary-foreground/70" : "text-muted-foreground",
           )}
         >
+          {msg.editDate && (
+            <span
+              className="flex items-center gap-0.5"
+              title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
+              data-testid={`edited-${msg.id}`}
+            >
+              <Pencil className="h-2.5 w-2.5" />
+              edited
+            </span>
+          )}
           {msg.views != null && (
             <span className="flex items-center gap-0.5">
               <Eye className="h-3 w-3" />
@@ -409,13 +548,32 @@ function MessageBubble({
             </span>
           )}
           <span>{formatTime(msg.date)}</span>
+          <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
         </div>
       </div>
     </div>
   );
 }
 
+function ChatHeaderSubtitle({ dialog }: { dialog: Dialog }) {
+  if (dialog.type === "channel") return <>Channel</>;
+  if (dialog.type === "chat") return <>Group</>;
+  if (dialog.isBot) return <>Bot</>;
+  const presence = formatPresence(dialog.presence);
+  if (presence.label) {
+    return (
+      <span
+        className={cn(presence.online && "text-emerald-500 dark:text-emerald-400")}
+      >
+        {presence.label}
+      </span>
+    );
+  }
+  return <>User</>;
+}
+
 export function MessageView({ dialog }: { dialog: Dialog }) {
+  const qc = useQueryClient();
   const {
     data,
     isLoading,
@@ -440,14 +598,30 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const didInitialScroll = useRef(false);
   const prevScrollHeight = useRef<number | null>(null);
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+
+  // Reset reply target when switching chats.
+  useEffect(() => {
+    setReplyTo(null);
+    setLightbox(null);
+    setHighlightId(null);
+  }, [dialog.id, dialog.type]);
 
   // Flatten + reverse so oldest renders at top, newest at bottom.
-  const allMessages: Message[] = (data?.pages ?? [])
-    .flatMap((p) => p.messages)
-    .slice()
-    .reverse();
+  const allMessages: Message[] = useMemo(
+    () =>
+      (data?.pages ?? [])
+        .flatMap((p) => p.messages)
+        .slice()
+        .reverse(),
+    [data],
+  );
 
-  // Scroll to bottom on first load of a chat.
+  // Scroll to bottom on first load of a chat; preserve position when prepending.
   useEffect(() => {
     didInitialScroll.current = false;
     prevScrollHeight.current = null;
@@ -460,7 +634,6 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
       v.scrollTop = v.scrollHeight;
       didInitialScroll.current = true;
     } else if (prevScrollHeight.current != null) {
-      // We just prepended older messages — preserve visual position.
       v.scrollTop = v.scrollHeight - prevScrollHeight.current;
       prevScrollHeight.current = null;
     }
@@ -485,6 +658,53 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
     return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, allMessages.length]);
 
+  // Mark chat as read when messages first load (or new ones arrive) for any
+  // chat with unread messages.
+  const markRead = useMutation({
+    mutationFn: ({ chatId, maxId }: { chatId: string; maxId: number }) =>
+      api.markRead(chatId, maxId),
+  });
+  useEffect(() => {
+    if (dialog.unreadCount <= 0) return;
+    if (allMessages.length === 0) return;
+    const newest = allMessages[allMessages.length - 1];
+    if (!newest) return;
+    if (
+      dialog.readInboxMaxId != null &&
+      newest.id <= dialog.readInboxMaxId
+    ) {
+      return;
+    }
+    markRead.mutate(
+      { chatId: dialog.id, maxId: newest.id },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: ["dialogs"] });
+        },
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    dialog.id,
+    dialog.type,
+    dialog.unreadCount,
+    dialog.readInboxMaxId,
+    allMessages.length,
+  ]);
+
+  const registerRef = (id: number, el: HTMLDivElement | null) => {
+    if (el) messageRefs.current.set(id, el);
+    else messageRefs.current.delete(id);
+  };
+
+  const handleJump = (id: number) => {
+    const el = messageRefs.current.get(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(id);
+    window.setTimeout(() => setHighlightId(null), 1500);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b bg-card/50 px-4 py-3">
@@ -504,13 +724,7 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
           <div className="text-xs text-muted-foreground">
             {dialog.username ? `@${dialog.username}` : ""}
             {dialog.username && " · "}
-            {dialog.type === "channel"
-              ? "Channel"
-              : dialog.type === "chat"
-                ? "Group"
-                : dialog.isBot
-                  ? "Bot"
-                  : "User"}
+            <ChatHeaderSubtitle dialog={dialog} />
             {allMessages.length > 0 && (
               <span> · {allMessages.length} loaded</span>
             )}
@@ -589,6 +803,11 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
                     msg={m}
                     showAvatar={showAvatar}
                     dialog={dialog}
+                    onReply={setReplyTo}
+                    onJump={handleJump}
+                    onOpenLightbox={setLightbox}
+                    highlight={highlightId === m.id}
+                    registerRef={registerRef}
                   />
                 </div>
               );
@@ -597,7 +816,16 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
         )}
       </div>
 
-      <Composer chatId={dialog.id} chatType={dialog.type} />
+      <Composer
+        chatId={dialog.id}
+        chatType={dialog.type}
+        replyTo={replyTo}
+        onClearReply={() => setReplyTo(null)}
+      />
+
+      {lightbox && (
+        <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   getProfilePhoto,
   openMessageMedia,
   sendChatMessage,
+  markChatRead,
 } from "../telegram/chats";
 import { streamRangedResponse } from "../lib/range";
 
@@ -59,6 +60,26 @@ router.get("/messages", async (req: Request, res: Response) => {
     res.json(result);
   } catch (err) {
     handleError(req, res, err, "Failed to fetch messages");
+  }
+});
+
+router.post("/dialogs/:chatId/read", async (req: Request, res: Response) => {
+  const raw = req.params["chatId"];
+  const chatId = (Array.isArray(raw) ? raw[0] : raw) ?? "";
+  if (!chatId) {
+    res.status(400).json({ error: "Missing chatId" });
+    return;
+  }
+  const body = (req.body ?? {}) as { maxId?: number };
+  const maxId =
+    typeof body.maxId === "number" && Number.isFinite(body.maxId)
+      ? body.maxId
+      : undefined;
+  try {
+    const result = await markChatRead(chatId, maxId);
+    res.json(result);
+  } catch (err) {
+    handleError(req, res, err, "Failed to mark chat as read");
   }
 });
 

@@ -52,3 +52,16 @@ This project was imported from GitHub and configured to run in Replit:
 - **Database**: `DATABASE_URL` is provided by Replit's managed PostgreSQL.
 - **Logging in**: if the saved session is invalid (`AUTH_KEY_UNREGISTERED`), use the web UI's Login screen to authenticate with phone + code, which creates a fresh session in `artifacts/api-server/storage/session.txt`.
 - **Deployment**: `.replit` is preconfigured for autoscale via the artifact router; per-service production builds live in each `artifacts/*/.replit-artifact/artifact.toml`.
+
+## Telegram Viewer Features (April 2026)
+
+The viewer has been extended beyond a basic chat reader with native Telegram-like behaviors:
+
+- **Media streaming**: `GET /api/media/:chatId/:msgId` honors HTTP `Range` requests with 512 KB aligned chunks via `client.iterDownload`, so videos seek instantly and large files don't pin server RAM. Photos and thumbs are still single-shot buffered. Implementation in `artifacts/api-server/src/lib/range.ts` + `openMessageMedia` in `telegram/chats.ts`.
+- **Reply-to-message**: `MessageEntry.replyTo` includes the resolved preview (sender + text + hasMedia). `listMessages` batches a single follow-up `getMessages` call to fetch all reply targets in one round-trip. Frontend: hover-reveal reply button on each bubble, preview pill in `Composer`, click-to-jump on the inline quoted bubble (with a 1.5s flash highlight).
+- **Read receipts**: `DialogEntry.readOutboxMaxId` drives a single ✓ or double ✓✓ check on every outgoing message bubble in `MessageView`.
+- **Mark-as-read on open**: `POST /api/dialogs/:chatId/read` calls gramjs `markAsRead`; the viewer fires it once per chat opened when there are unread messages.
+- **Forwarded / edited indicators**: `MessageEntry.fwdFrom` and `MessageEntry.editDate` render an italic "Forwarded from X" header and a small ✏ "edited" tag in the bubble footer.
+- **Online / last seen**: `DialogEntry.presence` (mapped from `Api.UserStatus*`) drives a green dot on user avatars in the chat list and a subtitle like "online" / "last seen at 14:32" in the chat header.
+- **Photo lightbox**: clicking any loaded photo opens a fullscreen overlay (`components/PhotoLightbox.tsx`); ESC or backdrop closes.
+- **Dark mode**: `hooks/use-theme.ts` persists the choice in `localStorage` and toggles the `.dark` class on `<html>`. A sun/moon button lives in the sidebar header next to the logout button.

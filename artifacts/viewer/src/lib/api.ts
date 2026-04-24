@@ -6,6 +6,14 @@ export interface Me {
   phone: string | null;
 }
 
+export type UserPresence =
+  | { kind: "online"; expires: number }
+  | { kind: "offline"; wasOnline: number }
+  | { kind: "recently" }
+  | { kind: "lastWeek" }
+  | { kind: "lastMonth" }
+  | { kind: "longAgo" };
+
 export interface Dialog {
   id: string;
   type: "user" | "chat" | "channel";
@@ -16,6 +24,9 @@ export interface Dialog {
   isVerified: boolean;
   isBot: boolean;
   hasPhoto: boolean;
+  readInboxMaxId: number | null;
+  readOutboxMaxId: number | null;
+  presence: UserPresence | null;
   lastMessage: {
     id: number;
     text: string;
@@ -59,14 +70,29 @@ export type MessageMedia =
     }
   | { kind: "other"; label: string };
 
+export interface ReplyPreview {
+  id: number;
+  text: string;
+  senderName: string | null;
+  hasMedia: boolean;
+}
+
+export interface ForwardInfo {
+  fromName: string | null;
+  date: number;
+}
+
 export interface Message {
   id: number;
   date: number;
+  editDate: number | null;
   out: boolean;
   text: string;
   fromId: string | null;
   fromName: string | null;
   replyToMsgId: number | null;
+  replyTo: ReplyPreview | null;
+  fwdFrom: ForwardInfo | null;
   views: number | null;
   media: MessageMedia | null;
 }
@@ -115,6 +141,11 @@ export const api = {
       text,
       ...(replyToMsgId ? { replyToMsgId } : {}),
     }),
+  markRead: (chatId: string, maxId?: number) =>
+    postJson<{ ok: true }>(
+      `/api/dialogs/${encodeURIComponent(chatId)}/read`,
+      maxId != null ? { maxId } : {},
+    ),
   authStatus: () =>
     get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
   sendCode: (phone: string) =>

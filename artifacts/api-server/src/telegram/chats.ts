@@ -4,6 +4,14 @@ import path from "node:path";
 import { getTelegramClient } from "./client";
 import { logger } from "../lib/logger";
 
+export type UserPresence =
+  | { kind: "online"; expires: number }
+  | { kind: "offline"; wasOnline: number }
+  | { kind: "recently" }
+  | { kind: "lastWeek" }
+  | { kind: "lastMonth" }
+  | { kind: "longAgo" };
+
 export interface DialogEntry {
   id: string;
   type: "user" | "chat" | "channel";
@@ -14,6 +22,12 @@ export interface DialogEntry {
   isVerified: boolean;
   isBot: boolean;
   hasPhoto: boolean;
+  /** Highest message ID our user has read in this chat. */
+  readInboxMaxId: number | null;
+  /** Highest message ID of ours that the other side has read. */
+  readOutboxMaxId: number | null;
+  /** Presence info for user chats. Null for groups/channels. */
+  presence: UserPresence | null;
   lastMessage: {
     id: number;
     text: string;
@@ -22,14 +36,29 @@ export interface DialogEntry {
   } | null;
 }
 
+export interface ReplyPreview {
+  id: number;
+  text: string;
+  senderName: string | null;
+  hasMedia: boolean;
+}
+
+export interface ForwardInfo {
+  fromName: string | null;
+  date: number;
+}
+
 export interface MessageEntry {
   id: number;
   date: number;
+  editDate: number | null;
   out: boolean;
   text: string;
   fromId: string | null;
   fromName: string | null;
   replyToMsgId: number | null;
+  replyTo: ReplyPreview | null;
+  fwdFrom: ForwardInfo | null;
   views: number | null;
   media: MessageMedia | null;
 }
@@ -126,6 +155,21 @@ function entityTitle(entity: unknown): string {
   return "Unknown";
 }
 
+function userPresence(user: Api.User): UserPresence | null {
+  const status = user.status;
+  if (!status) return null;
+  if (status instanceof Api.UserStatusOnline) {
+    return { kind: "online", expires: status.expires };
+  }
+  if (status instanceof Api.UserStatusOffline) {
+    return { kind: "offline", wasOnline: status.wasOnline };
+  }
+  if (status instanceof Api.UserStatusRecently) return { kind: "recently" };
+  if (status instanceof Api.UserStatusLastWeek) return { kind: "lastWeek" };
+  if (status instanceof Api.UserStatusLastMonth) return { kind: "lastMonth" };
+  return null;
+}
+
 export async function getMe(): Promise<MeInfo> {
   const client = await getTelegramClient();
   const me = (await client.getMe()) as Api.User;
@@ -195,6 +239,19 @@ export async function listDialogs(limit = 100): Promise<DialogEntry[]> {
         }
       : null;
 
+    const rawDialog = (d as unknown as { dialog?: Api.Dialog }).dialog;
+    const readInboxMaxId =
+      rawDialog && typeof rawDialog.readInboxMaxId === "number"
+        ? rawDialog.readInboxMaxId
+        : null;
+    const readOutboxMaxId =
+      rawDialog && typeof rawDialog.readOutboxMaxId === "number"
+        ? rawDialog.readOutboxMaxId
+        : null;
+
+    const presence =
+      entity instanceof Api.User && !entity.bot ? userPresence(entity) : null;
+
     out.push({
       id: bigToString((entity as { id: unknown }).id),
       type,
@@ -205,6 +262,9 @@ export async function listDialogs(limit = 100): Promise<DialogEntry[]> {
       isVerified,
       isBot,
       hasPhoto,
+      readInboxMaxId,
+      readOutboxMaxId,
+      presence,
       lastMessage,
     });
   }
@@ -328,6 +388,16 @@ function extractMessageMedia(
   return { kind: "other", label: "Unsupported media" };
 }
 
+function fwdFromInfo(m: Api.Message): ForwardInfo | null {
+  const f = m.fwdFrom;
+  if (!f) return null;
+  let fromName: string | null = null;
+  if (f.fromName) fromName = f.fromName;
+  // Note: fromId resolution to a name would require an additional lookup; we
+  // include the human-readable fromName when Telegram provides one.
+  return { fromName, date: f.date };
+}
+
 export async function listMessages(
   chatId: string,
   limit: number,
@@ -340,6 +410,40 @@ export async function listMessages(
     offsetId: offsetId ?? 0,
   });
 
+  // Batch-fetch the replied-to messages so we can render preview bubbles.
+  const replyIds = new Set<number>();
+  for (const m of messages) {
+    if (
+      m.replyTo instanceof Api.MessageReplyHeader &&
+      m.replyTo.replyToMsgId != null
+    ) {
+      replyIds.add(m.replyTo.replyToMsgId);
+    }
+  }
+  const replyPreviews = new Map<number, ReplyPreview>();
+  if (replyIds.size > 0) {
+    try {
+      const targets = await client.getMessages(entity, {
+        ids: Array.from(replyIds),
+      });
+      for (const t of targets) {
+        if (!t || typeof t.id !== "number") continue;
+        const sender = (t as unknown as { sender?: unknown }).sender;
+        replyPreviews.set(t.id, {
+          id: t.id,
+          text: t.message ?? "",
+          senderName: sender ? entityTitle(sender) : null,
+          hasMedia: !!t.media,
+        });
+      }
+    } catch (err) {
+      logger.warn(
+        { err, chatId: resolvedId },
+        "Failed to fetch reply previews",
+      );
+    }
+  }
+
   const out: MessageEntry[] = messages.map((m) => {
     const fromIdRaw = (m.fromId ?? m.peerId) as unknown;
     let fromId: string | null = null;
@@ -350,21 +454,40 @@ export async function listMessages(
     const sender = (m as unknown as { sender?: unknown }).sender;
     const fromName = sender ? entityTitle(sender) : null;
 
+    const replyToMsgId =
+      m.replyTo instanceof Api.MessageReplyHeader
+        ? m.replyTo.replyToMsgId ?? null
+        : null;
+    const replyTo =
+      replyToMsgId != null ? replyPreviews.get(replyToMsgId) ?? null : null;
+
     return {
       id: m.id,
       date: m.date,
+      editDate: (m as unknown as { editDate?: number }).editDate ?? null,
       out: !!m.out,
       text: m.message ?? "",
       fromId,
       fromName,
-      replyToMsgId:
-        m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId ?? null : null,
+      replyToMsgId,
+      replyTo,
+      fwdFrom: fwdFromInfo(m),
       views: (m as unknown as { views?: number }).views ?? null,
       media: extractMessageMedia(m, resolvedId),
     };
   });
 
   return { chatId: resolvedId, messages: out };
+}
+
+export async function markChatRead(
+  chatId: string,
+  maxId?: number,
+): Promise<{ ok: true }> {
+  const { entity } = await resolveEntity(chatId);
+  const client = await getTelegramClient();
+  await client.markAsRead(entity, maxId, { clearMentions: true });
+  return { ok: true };
 }
 
 export async function getProfilePhoto(

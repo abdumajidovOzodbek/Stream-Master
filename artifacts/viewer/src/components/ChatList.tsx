@@ -103,12 +103,20 @@ export function ChatList({
                     selected && "bg-primary/10 hover:bg-primary/15",
                   )}
                 >
-                  <ChatAvatar
-                    peerId={d.id}
-                    title={d.title}
-                    hasPhoto={d.hasPhoto}
-                    size={48}
-                  />
+                  <div className="relative shrink-0">
+                    <ChatAvatar
+                      peerId={d.id}
+                      title={d.title}
+                      hasPhoto={d.hasPhoto}
+                      size={48}
+                    />
+                    {d.presence?.kind === "online" && (
+                      <span
+                        className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-emerald-500"
+                        data-testid={`online-dot-${d.id}`}
+                      />
+                    )}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate text-sm font-medium">

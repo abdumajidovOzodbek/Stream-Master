@@ -16,9 +16,29 @@ import { ChatAvatar } from "@/components/Avatar";
 import { Login } from "@/components/Login";
 import { Button } from "@/components/ui/button";
 import { api, type Dialog } from "@/lib/api";
-import { MessageSquare, Loader2, LogOut } from "lucide-react";
+import { useTheme } from "@/hooks/use-theme";
+import { MessageSquare, Loader2, LogOut, Moon, Sun } from "lucide-react";
 
 const queryClient = new QueryClient();
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggle}
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      data-testid="button-theme-toggle"
+    >
+      {theme === "dark" ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Moon className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
 
 function LogoutButton() {
   const qc = useQueryClient();
@@ -83,6 +103,7 @@ function ChatApp() {
                       : ""}
                 </div>
               </div>
+              <ThemeToggle />
               <LogoutButton />
             </>
           ) : (
