@@ -4,9 +4,10 @@ import {
   listDialogs,
   listMessages,
   getProfilePhoto,
-  getMessageMedia,
+  openMessageMedia,
   sendChatMessage,
 } from "../telegram/chats";
+import { streamRangedResponse } from "../lib/range";
 
 const router: IRouter = Router();
 
@@ -115,21 +116,39 @@ router.get("/media/:chatId/:msgId", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await getMessageMedia(chatId, msgId, thumb);
-    if (!result) {
+    const opened = await openMessageMedia(chatId, msgId, thumb);
+    if (!opened) {
       res.status(404).json({ error: "Media not found" });
       return;
     }
     res.setHeader("Cache-Control", "private, max-age=300");
-    if (result.mimeType) res.setHeader("Content-Type", result.mimeType);
-    res.setHeader("Content-Length", String(result.size));
-    if (forceDownload && result.fileName) {
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${encodeURIComponent(result.fileName)}"`,
-      );
+
+    if (opened.fullBuffer) {
+      // Small media (photos/thumbs) — send the buffer in one shot.
+      if (opened.info.mimeType) res.setHeader("Content-Type", opened.info.mimeType);
+      res.setHeader("Content-Length", String(opened.info.size));
+      if (forceDownload) {
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${encodeURIComponent(opened.info.fileName)}"`,
+        );
+      }
+      res.end(opened.fullBuffer);
+      return;
     }
-    res.end(result.buffer);
+
+    if (opened.streamRange) {
+      await streamRangedResponse(req, res, {
+        totalSize: opened.info.size,
+        mimeType: opened.info.mimeType,
+        fileName: opened.info.fileName,
+        forceDownload,
+        stream: opened.streamRange,
+      });
+      return;
+    }
+
+    res.status(500).json({ error: "Media not streamable" });
   } catch (err) {
     handleError(req, res, err, "Failed to fetch media");
   }

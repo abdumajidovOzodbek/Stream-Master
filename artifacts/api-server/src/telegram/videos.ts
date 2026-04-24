@@ -1,4 +1,5 @@
 import { Api } from "telegram";
+import bigInt from "big-integer";
 import path from "node:path";
 import { getTelegramClient } from "./client";
 import { logger } from "../lib/logger";
@@ -80,17 +81,20 @@ export async function listChannelVideos(
   return videos;
 }
 
-export interface VideoStream {
-  buffer: Buffer;
-  mimeType: string | null;
-  fileName: string;
+export interface OpenedVideo {
   meta: VideoMetadata;
+  fileName: string;
+  mimeType: string | null;
+  size: number;
+  streamRange: (offset: number, length: number) => AsyncIterable<Buffer>;
 }
 
-export async function streamChannelVideo(
+const STREAM_CHUNK_SIZE = 512 * 1024; // 512 KB — power of 2, ≤ 1MB
+
+export async function openChannelVideo(
   channel: string,
   messageId: number,
-): Promise<VideoStream | null> {
+): Promise<OpenedVideo | null> {
   const client = await getTelegramClient();
   const entity = await client.getEntity(channel);
   const messages = await client.getMessages(entity, { ids: [messageId] });
@@ -100,14 +104,65 @@ export async function streamChannelVideo(
   const meta = extractVideoMeta(message);
   if (!meta) return null;
 
-  logger.info({ messageId, fileName: meta.fileName }, "Streaming video from Telegram");
-  const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
-  if (!buffer || buffer.length === 0) return null;
+  const media = message.media;
+  if (!(media instanceof Api.MessageMediaDocument) || !(media.document instanceof Api.Document)) {
+    return null;
+  }
+  const doc = media.document;
+  const totalSize = Number(doc.size as unknown as bigint | number);
+  if (!totalSize) return null;
+
+  const fileLocation = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+  const dcId = doc.dcId;
+
+  logger.info({ messageId, fileName: meta.fileName, size: totalSize }, "Opened channel video for streaming");
 
   return {
-    buffer,
-    mimeType: meta.mimeType,
-    fileName: meta.fileName,
     meta,
+    fileName: meta.fileName,
+    mimeType: meta.mimeType,
+    size: totalSize,
+    streamRange: async function* (byteOffset: number, byteLength: number) {
+      if (byteLength <= 0 || byteOffset >= totalSize) return;
+      const end = Math.min(byteOffset + byteLength, totalSize);
+      const length = end - byteOffset;
+
+      const alignedOffset = Math.floor(byteOffset / STREAM_CHUNK_SIZE) * STREAM_CHUNK_SIZE;
+      const skip = byteOffset - alignedOffset;
+      const chunksNeeded = Math.ceil((skip + length) / STREAM_CHUNK_SIZE);
+
+      const iter = client.iterDownload({
+        file: fileLocation,
+        offset: bigInt(alignedOffset),
+        limit: chunksNeeded,
+        requestSize: STREAM_CHUNK_SIZE,
+        chunkSize: STREAM_CHUNK_SIZE,
+        fileSize: bigInt(totalSize),
+        dcId,
+      });
+
+      let remaining = length;
+      let leadingSkip = skip;
+      for await (const raw of iter) {
+        if (remaining <= 0) break;
+        let chunk = raw as Buffer;
+        if (leadingSkip > 0) {
+          if (leadingSkip >= chunk.length) {
+            leadingSkip -= chunk.length;
+            continue;
+          }
+          chunk = chunk.subarray(leadingSkip);
+          leadingSkip = 0;
+        }
+        if (chunk.length > remaining) chunk = chunk.subarray(0, remaining);
+        yield chunk;
+        remaining -= chunk.length;
+      }
+    },
   };
 }

@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { listChannelVideos, streamChannelVideo } from "../telegram/videos";
+import { listChannelVideos, openChannelVideo } from "../telegram/videos";
+import { streamRangedResponse } from "../lib/range";
 
 const router: IRouter = Router();
 
@@ -51,21 +52,19 @@ router.get("/videos/:channel/:messageId", async (req: Request, res: Response) =>
   }
 
   try {
-    const result = await streamChannelVideo(channel, messageId);
-    if (!result) {
+    const opened = await openChannelVideo(channel, messageId);
+    if (!opened) {
       res.status(404).json({ error: "Video not found" });
       return;
     }
-    if (result.mimeType) res.setHeader("Content-Type", result.mimeType);
-    res.setHeader("Content-Length", String(result.buffer.length));
     res.setHeader("Cache-Control", "private, max-age=300");
-    if (forceDownload) {
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${encodeURIComponent(result.fileName)}"`,
-      );
-    }
-    res.end(result.buffer);
+    await streamRangedResponse(req, res, {
+      totalSize: opened.size,
+      mimeType: opened.mimeType,
+      fileName: opened.fileName,
+      forceDownload,
+      stream: opened.streamRange,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err, channel, messageId }, "Failed to stream video");

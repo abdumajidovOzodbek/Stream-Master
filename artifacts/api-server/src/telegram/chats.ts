@@ -406,70 +406,136 @@ export async function sendChatMessage(
   return { id: sent.id, date: sent.date };
 }
 
-export interface MediaStream {
-  buffer: Buffer;
+export interface MediaInfo {
   mimeType: string | null;
-  fileName: string | null;
+  fileName: string;
   size: number;
 }
 
-export async function getMessageMedia(
+export interface OpenedMedia {
+  info: MediaInfo;
+  /** When set, the media is small and already fully buffered (photos, thumbs). */
+  fullBuffer?: Buffer;
+  /** When set, the media is a Document that can be streamed by byte range. */
+  streamRange?: (offset: number, length: number) => AsyncIterable<Buffer>;
+}
+
+const STREAM_CHUNK_SIZE = 512 * 1024; // 512 KB — must be a power of 2 ≤ 1MB
+
+export async function openMessageMedia(
   chatId: string,
   messageId: number,
   thumb: boolean,
-): Promise<MediaStream | null> {
+): Promise<OpenedMedia | null> {
   const { entity } = await resolveEntity(chatId);
   const client = await getTelegramClient();
   const messages = await client.getMessages(entity, { ids: [messageId] });
   const message = messages[0];
   if (!message || !message.media) return null;
 
+  // Thumbnails are tiny — just buffer them.
   if (thumb) {
     const buffer = (await client.downloadMedia(message, { thumb: 0 })) as Buffer | undefined;
     if (!buffer || buffer.length === 0) return null;
     return {
-      buffer,
-      mimeType: "image/jpeg",
-      fileName: `thumb_${messageId}.jpg`,
-      size: buffer.length,
+      info: {
+        mimeType: "image/jpeg",
+        fileName: `thumb_${messageId}.jpg`,
+        size: buffer.length,
+      },
+      fullBuffer: buffer,
     };
   }
 
-  // Determine filename and mime type from the message metadata
   const media = message.media;
-  let ext = ".bin";
-  let mimeType: string | null = null;
-  let originalName: string | null = null;
+
+  // Photos are small — just buffer them.
   if (media instanceof Api.MessageMediaPhoto) {
-    ext = ".jpg";
-    mimeType = "image/jpeg";
-  } else if (media instanceof Api.MessageMediaDocument && media.document instanceof Api.Document) {
-    mimeType = media.document.mimeType ?? null;
-    const fileAttr = media.document.attributes.find(
+    const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
+    if (!buffer || buffer.length === 0) return null;
+    return {
+      info: {
+        mimeType: "image/jpeg",
+        fileName: `photo_${messageId}.jpg`,
+        size: buffer.length,
+      },
+      fullBuffer: buffer,
+    };
+  }
+
+  // Documents (videos, audio, files) — stream by byte range.
+  if (media instanceof Api.MessageMediaDocument && media.document instanceof Api.Document) {
+    const doc = media.document;
+    const mimeType = doc.mimeType ?? null;
+    const totalSize = Number(doc.size as unknown as bigint | number);
+
+    const fileAttr = doc.attributes.find(
       (a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename,
     );
-    if (fileAttr?.fileName) {
-      originalName = fileAttr.fileName;
-      const e = path.extname(fileAttr.fileName);
+    const originalName = fileAttr?.fileName ?? null;
+    let ext = ".bin";
+    if (originalName) {
+      const e = path.extname(originalName);
       if (e) ext = e;
     } else if (mimeType === "video/mp4") ext = ".mp4";
+    else if (mimeType === "video/webm") ext = ".webm";
     else if (mimeType === "image/webp") ext = ".webp";
     else if (mimeType === "audio/ogg") ext = ".ogg";
     else if (mimeType === "audio/mpeg") ext = ".mp3";
+    const fileName = originalName ?? `media_${messageId}${ext}`;
+
+    const fileLocation = new Api.InputDocumentFileLocation({
+      id: doc.id,
+      accessHash: doc.accessHash,
+      fileReference: doc.fileReference,
+      thumbSize: "",
+    });
+    const dcId = doc.dcId;
+
+    return {
+      info: { mimeType, fileName, size: totalSize },
+      streamRange: async function* (byteOffset: number, byteLength: number) {
+        if (byteLength <= 0 || byteOffset >= totalSize) return;
+        const end = Math.min(byteOffset + byteLength, totalSize);
+        const length = end - byteOffset;
+
+        // Telegram requires the request offset to be aligned to the chunk size.
+        const alignedOffset = Math.floor(byteOffset / STREAM_CHUNK_SIZE) * STREAM_CHUNK_SIZE;
+        const skip = byteOffset - alignedOffset;
+        const chunksNeeded = Math.ceil((skip + length) / STREAM_CHUNK_SIZE);
+
+        const iter = client.iterDownload({
+          file: fileLocation,
+          offset: bigInt(alignedOffset),
+          limit: chunksNeeded,
+          requestSize: STREAM_CHUNK_SIZE,
+          chunkSize: STREAM_CHUNK_SIZE,
+          fileSize: bigInt(totalSize),
+          dcId,
+        });
+
+        let remaining = length;
+        let leadingSkip = skip;
+        for await (const raw of iter) {
+          if (remaining <= 0) break;
+          let chunk = raw as Buffer;
+          if (leadingSkip > 0) {
+            if (leadingSkip >= chunk.length) {
+              leadingSkip -= chunk.length;
+              continue;
+            }
+            chunk = chunk.subarray(leadingSkip);
+            leadingSkip = 0;
+          }
+          if (chunk.length > remaining) {
+            chunk = chunk.subarray(0, remaining);
+          }
+          yield chunk;
+          remaining -= chunk.length;
+        }
+      },
+    };
   }
 
-  const fileName = originalName ?? `media_${messageId}${ext}`;
-
-  logger.info({ chatId, messageId, fileName }, "Streaming media from Telegram");
-  try {
-    const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
-    if (!buffer || buffer.length === 0) {
-      logger.warn({ chatId, messageId }, "Empty media download");
-      return null;
-    }
-    return { buffer, mimeType, fileName, size: buffer.length };
-  } catch (err) {
-    logger.error({ err, chatId, messageId }, "Media download failed");
-    throw err;
-  }
+  return null;
 }
