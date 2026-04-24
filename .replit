@@ -11,6 +11,43 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=8000 pnpm --filter @workspace/api-server run dev"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 BASE_PATH=/ pnpm --filter @workspace/viewer run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -18,6 +55,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
 
 [[ports]]
 localPort = 8080
@@ -38,4 +79,3 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
-TELEGRAM_SESSION = "1AgAOMTQ5LjE1NC4xNjcuNDEBu0I/XWP9BE86fAceZgFNiMMns1yQYGBqpU9DNOLqGCeohuXGhhaQucqDJVX4VBRwqtRGq/1ahR4Die63r9ItiSI+buT+QqHmnA9AOgQRyyNq1expx6RxjHjOmQgNTjhdafixgX0J3Gjts+ZGXkW25S3LNMP0zG5yM8erZldDXjlDqsBnWy9UDXAUr8e10hWLqnNRgqxYvhgJY1Sp/XCgfrrZR0bLIvw1nten/zLdNCykypnzd8mOAZlJjqQz/FZGbi2yxUvQSsQHb5lIVFlgzX6gLrM9pzMjlxiKwjq9Q1Prvtl+lD7wMpUX14oGS4rKuuLxyVDxNZgm+dXu06Wgoc4="
