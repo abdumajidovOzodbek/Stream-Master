@@ -10,15 +10,6 @@ import {
 
 const router: IRouter = Router();
 
-function baseUrlFromReq(req: Request): string {
-  const protoHeader = req.headers["x-forwarded-proto"];
-  const proto =
-    (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || req.protocol;
-  const hostHeader = req.headers["x-forwarded-host"] ?? req.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-  return `${proto}://${host}`;
-}
-
 function handleError(req: Request, res: Response, err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : String(err);
   req.log.error({ err }, fallback);
@@ -63,7 +54,7 @@ router.get("/messages", async (req: Request, res: Response) => {
   const offsetId = offsetIdRaw ? Number(offsetIdRaw) : undefined;
 
   try {
-    const result = await listMessages(chatId, limit, offsetId, baseUrlFromReq(req));
+    const result = await listMessages(chatId, limit, offsetId);
     res.json(result);
   } catch (err) {
     handleError(req, res, err, "Failed to fetch messages");

@@ -237,11 +237,10 @@ async function resolveEntity(chatId: string): Promise<ResolvedEntity> {
 function extractMessageMedia(
   msg: Api.Message,
   chatId: string,
-  baseUrl: string,
 ): MessageMedia | null {
   const media = msg.media;
   if (!media) return null;
-  const url = `${baseUrl}/api/media/${chatId}/${msg.id}`;
+  const url = `/api/media/${chatId}/${msg.id}`;
 
   if (media instanceof Api.MessageMediaPhoto) {
     const photo = media.photo;
@@ -286,7 +285,7 @@ function extractMessageMedia(
         mimeType,
         size,
         url,
-        thumbUrl: `${baseUrl}/api/media/${chatId}/${msg.id}?thumb=1`,
+        thumbUrl: `/api/media/${chatId}/${msg.id}?thumb=1`,
       };
     }
     if (audioAttr) {
@@ -333,7 +332,6 @@ export async function listMessages(
   chatId: string,
   limit: number,
   offsetId: number | undefined,
-  baseUrl: string,
 ): Promise<{ chatId: string; messages: MessageEntry[] }> {
   const { entity, id: resolvedId } = await resolveEntity(chatId);
   const client = await getTelegramClient();
@@ -362,7 +360,7 @@ export async function listMessages(
       replyToMsgId:
         m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId ?? null : null,
       views: (m as unknown as { views?: number }).views ?? null,
-      media: extractMessageMedia(m, resolvedId, baseUrl),
+      media: extractMessageMedia(m, resolvedId),
     };
   });
 

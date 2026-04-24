@@ -12,19 +12,13 @@ router.get("/channel-videos", async (req: Request, res: Response) => {
 
   const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 100);
 
-  const protoHeader = req.headers["x-forwarded-proto"];
-  const proto = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || req.protocol;
-  const hostHeader = req.headers["x-forwarded-host"] ?? req.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-  const baseUrl = `${proto}://${host}`;
-
   try {
     const metas = await listChannelVideos(channel, limit);
     const channelHandle = channel.replace(/^@/, "");
     const videos = metas.map((meta) => ({
       ...meta,
       telegramUrl: `https://t.me/${channelHandle}/${meta.messageId}`,
-      url: `${baseUrl}/api/videos/${encodeURIComponent(channel)}/${meta.messageId}`,
+      url: `/api/videos/${encodeURIComponent(channel)}/${meta.messageId}`,
       downloaded: false,
     }));
     res.json({ channel, count: videos.length, videos });
