@@ -512,11 +512,11 @@ function ReplyPreviewBlock({
       )}
     >
       <CornerUpLeft className={cn("mt-0.5 h-3 w-3 shrink-0", out ? "text-primary-foreground/80" : "text-primary")} />
-      <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-[11px] font-medium", out ? "text-primary-foreground" : "text-primary")}>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className={cn("line-clamp-1 text-[11px] font-medium", out ? "text-primary-foreground" : "text-primary")}>
           {reply.senderName ?? "Message"}
         </div>
-        <div className={cn("truncate text-[11px]", out ? "text-primary-foreground/80" : "text-muted-foreground")}>
+        <div className={cn("line-clamp-1 text-[11px]", out ? "text-primary-foreground/80" : "text-muted-foreground")}>
           {summarizeReply(reply.text, reply.hasMedia)}
         </div>
       </div>
@@ -792,7 +792,7 @@ function MessageBubble({
             className={cn(
               // min-w ensures very short messages ("Hi", "ok") always have room
               // for the timestamp + status footer without wrapping.
-              "relative min-w-[108px] rounded-2xl px-3.5 py-2 text-sm",
+              "relative min-w-[108px] overflow-hidden rounded-2xl px-3.5 py-2 text-sm",
               out
                 ? "rounded-br-sm bubble-out text-primary-foreground"
                 : "rounded-bl-sm bubble-in",
@@ -866,6 +866,13 @@ function MessageBubble({
               const match = msg.text.match(URL_REGEX);
               return match ? <OgCard url={match[0]} out={out} /> : null;
             })()}
+
+            {/* Fallback for messages with no text and no renderable media */}
+            {!msg.text && !msg.media && (
+              <span className={cn("text-xs italic", out ? "text-primary-foreground/60" : "text-muted-foreground/70")}>
+                Unsupported message
+              </span>
+            )}
 
             {/* Footer — inline (absolute) when there is text, block otherwise */}
             {useInlineFooter ? (
