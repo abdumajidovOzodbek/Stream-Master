@@ -601,6 +601,7 @@ export async function sendChatMessage(
   chatId: string,
   text: string,
   replyToMsgId?: number,
+  scheduleDate?: number,
 ): Promise<{ id: number; date: number }> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Message text is empty");
@@ -609,6 +610,7 @@ export async function sendChatMessage(
   const sent = (await client.sendMessage(entity, {
     message: trimmed,
     ...(replyToMsgId ? { replyTo: replyToMsgId } : {}),
+    ...(scheduleDate ? { schedule: scheduleDate } : {}),
   })) as Api.Message;
   return { id: sent.id, date: sent.date };
 }
@@ -793,6 +795,67 @@ export async function openMessageMedia(
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// OG meta-tag fetcher (for link previews)
+// ---------------------------------------------------------------------------
+
+export async function fetchOgData(url: string): Promise<{
+  title: string | null;
+  description: string | null;
+  image: string | null;
+}> {
+  try {
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TelegramViewer/1.0; +https://github.com)" },
+      signal: AbortSignal.timeout(5_000),
+      redirect: "follow",
+    });
+    if (!resp.ok) return { title: null, description: null, image: null };
+    const html = await resp.text();
+
+    function getOg(prop: string): string | null {
+      const r1 = new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"'<>]+)["']`, "i");
+      const r2 = new RegExp(`<meta[^>]+content=["']([^"'<>]+)["'][^>]+property=["']og:${prop}["']`, "i");
+      return html.match(r1)?.[1]?.trim() ?? html.match(r2)?.[1]?.trim() ?? null;
+    }
+
+    const title =
+      getOg("title") ??
+      html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1]?.trim() ??
+      null;
+    const description = getOg("description");
+    const image = getOg("image");
+    return { title, description, image };
+  } catch {
+    return { title: null, description: null, image: null };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dialog folders (user-created Telegram chat folders)
+// ---------------------------------------------------------------------------
+
+export async function getDialogFolders(): Promise<{ id: number; title: string }[]> {
+  const client = await getTelegramClient();
+  const raw = (await client.invoke(new Api.messages.GetDialogFilters())) as unknown;
+  const filters: unknown[] = Array.isArray(raw)
+    ? raw
+    : ((raw as { filters?: unknown[] }).filters ?? []);
+
+  const out: { id: number; title: string }[] = [];
+  for (const f of filters) {
+    const folder = f as { id?: number; title?: unknown; className?: string };
+    if (!folder.id || folder.className === "DialogFilterDefault") continue;
+    const rawTitle = folder.title;
+    const title =
+      typeof rawTitle === "string"
+        ? rawTitle
+        : (rawTitle as { text?: string } | undefined)?.text ?? "Folder";
+    out.push({ id: folder.id, title });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -641,6 +641,57 @@ function ReactionChips({
 }
 
 // ---------------------------------------------------------------------------
+// OG link preview card
+// ---------------------------------------------------------------------------
+
+const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/i;
+
+function OgCard({ url, out }: { url: string; out: boolean }) {
+  const { data } = useQuery({
+    queryKey: ["og", url],
+    queryFn: () => api.ogData(url),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+    enabled: URL_REGEX.test(url),
+  });
+  if (!data?.title) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(
+        "mt-1.5 block overflow-hidden rounded-lg border text-left no-underline transition-opacity hover:opacity-90",
+        out ? "border-white/20 bg-white/10" : "border-border bg-muted/50",
+      )}
+    >
+      {data.image && (
+        <img
+          src={data.image}
+          alt=""
+          className="max-h-36 w-full object-cover"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+      )}
+      <div className="p-2">
+        <div className={cn("text-[12px] font-semibold leading-snug", out ? "text-primary-foreground" : "text-foreground")}>
+          {data.title}
+        </div>
+        {data.description && (
+          <div className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", out ? "text-primary-foreground/70" : "text-muted-foreground")}>
+            {data.description}
+          </div>
+        )}
+        <div className={cn("mt-1 truncate text-[10px]", out ? "text-primary-foreground/50" : "text-muted-foreground/60")}>
+          {new URL(url).hostname}
+        </div>
+      </div>
+    </a>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Message bubble
 // ---------------------------------------------------------------------------
 
@@ -760,6 +811,12 @@ function MessageBubble({
             {msg.text && (
               <div className="whitespace-pre-wrap break-words">{msg.text}</div>
             )}
+
+            {/* Link preview (OG card) — only when no media and URL found in text */}
+            {msg.text && !msg.media && (() => {
+              const match = msg.text.match(URL_REGEX);
+              return match ? <OgCard url={match[0]} out={out} /> : null;
+            })()}
 
             {/* Footer: edited · views · time · status */}
             <div
@@ -903,7 +960,7 @@ function useDebounce<T>(value: T, delay: number): T {
 // Main MessageView
 // ---------------------------------------------------------------------------
 
-export function MessageView({ dialog, onBack }: { dialog: Dialog; onBack?: () => void }) {
+export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; onBack?: () => void; stealthMode?: boolean }) {
   const qc = useQueryClient();
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
@@ -991,12 +1048,13 @@ export function MessageView({ dialog, onBack }: { dialog: Dialog; onBack?: () =>
     return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, allMessages.length]);
 
-  // Mark as read
+  // Mark as read (skipped in stealth mode)
   const markRead = useMutation({
     mutationFn: ({ chatId, maxId }: { chatId: string; maxId: number }) =>
       api.markRead(chatId, maxId),
   });
   useEffect(() => {
+    if (stealthMode) return;
     if (dialog.unreadCount <= 0) return;
     if (allMessages.length === 0) return;
     const newest = allMessages[allMessages.length - 1];
@@ -1007,7 +1065,7 @@ export function MessageView({ dialog, onBack }: { dialog: Dialog; onBack?: () =>
       { onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dialogs"] }); } },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dialog.id, dialog.type, dialog.unreadCount, dialog.readInboxMaxId, allMessages.length]);
+  }, [stealthMode, dialog.id, dialog.type, dialog.unreadCount, dialog.readInboxMaxId, allMessages.length]);
 
   const registerRef = useCallback((id: number, el: HTMLDivElement | null) => {
     if (el) messageRefs.current.set(id, el);
@@ -1098,7 +1156,21 @@ export function MessageView({ dialog, onBack }: { dialog: Dialog; onBack?: () =>
         )}
 
         {/* Messages */}
-        <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/30">
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-y-auto bg-muted/30">
+          {/* Unread jump button */}
+          {dialog.unreadCount > 0 && allMessages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const v = viewportRef.current;
+                if (v) v.scrollTo({ top: v.scrollHeight, behavior: "smooth" });
+              }}
+              className="jump-bounce absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-lg"
+            >
+              ↓ {dialog.unreadCount} unread
+            </button>
+          )}
+
           {isLoading && (
             <div className="flex items-center justify-center py-20 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -1152,7 +1224,7 @@ export function MessageView({ dialog, onBack }: { dialog: Dialog; onBack?: () =>
                 const showAvatar = !sameAsNext;
 
                 return (
-                  <div key={m.id}>
+                  <div key={m.id} className="msg-row">
                     {showDate && (
                       <div className="my-3 flex justify-center">
                         <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">

@@ -6,6 +6,8 @@ import {
   listMessages,
   searchMessages,
   searchContacts,
+  fetchOgData,
+  getDialogFolders,
   getUserInfo,
   getProfilePhoto,
   openMessageMedia,
@@ -102,7 +104,12 @@ router.get("/search", async (req: Request, res: Response) => {
 });
 
 router.post("/messages", async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as { chatId?: string; text?: string; replyToMsgId?: number };
+  const body = (req.body ?? {}) as {
+    chatId?: string;
+    text?: string;
+    replyToMsgId?: number;
+    scheduleDate?: number;
+  };
   const chatId = body.chatId?.trim();
   const text = body.text;
   if (!chatId || !text || !text.trim()) {
@@ -110,9 +117,30 @@ router.post("/messages", async (req: Request, res: Response) => {
     return;
   }
   try {
-    res.json(await sendChatMessage(chatId, text, body.replyToMsgId));
+    res.json(await sendChatMessage(chatId, text, body.replyToMsgId, body.scheduleDate));
   } catch (err) {
     handleError(req, res, err, "Failed to send message");
+  }
+});
+
+router.get("/og", async (req: Request, res: Response) => {
+  const url = ((req.query["url"] as string | undefined) ?? "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) {
+    res.status(400).json({ error: "Missing or invalid url" });
+    return;
+  }
+  try {
+    res.json(await fetchOgData(url));
+  } catch (err) {
+    handleError(req, res, err, "Failed to fetch OG data");
+  }
+});
+
+router.get("/folders", async (req: Request, res: Response) => {
+  try {
+    res.json(await getDialogFolders());
+  } catch (err) {
+    handleError(req, res, err, "Failed to fetch folders");
   }
 });
 

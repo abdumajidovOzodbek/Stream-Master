@@ -1,5 +1,23 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.msg-row {
+  animation: msg-in 0.18s ease-out both;
+}
+
+@keyframes jump-btn {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-3px); }
+}
+
+.jump-bounce {
+  animation: jump-btn 1.4s ease-in-out infinite;
+}
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

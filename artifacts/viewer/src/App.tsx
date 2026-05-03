@@ -18,7 +18,9 @@ import { Button } from "@/components/ui/button";
 import { api, type Dialog } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
-import { MessageSquare, Loader2, LogOut, Moon, Sun } from "lucide-react";
+import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { DiscoverPage } from "@/components/DiscoverPage";
+import { MessageSquare, Loader2, LogOut, Moon, Sun, EyeOff, Eye, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const queryClient = new QueryClient();
@@ -30,14 +32,10 @@ function ThemeToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme === "dark" ? "Switch to light mode (Ctrl+D)" : "Switch to dark mode (Ctrl+D)"}
       data-testid="button-theme-toggle"
     >
-      {theme === "dark" ? (
-        <Sun className="h-5 w-5" />
-      ) : (
-        <Moon className="h-5 w-5" />
-      )}
+      {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
     </Button>
   );
 }
@@ -56,29 +54,23 @@ function LogoutButton() {
       variant="ghost"
       size="icon"
       title="Log out"
-      onClick={() => {
-        if (confirm("Log out of Telegram?")) m.mutate();
-      }}
+      onClick={() => { if (confirm("Log out of Telegram?")) m.mutate(); }}
       disabled={m.isPending}
     >
-      {m.isPending ? (
-        <Loader2 className="h-5 w-5 animate-spin" />
-      ) : (
-        <LogOut className="h-5 w-5" />
-      )}
+      {m.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogOut className="h-5 w-5" />}
     </Button>
   );
 }
 
 function ChatApp() {
   const [selected, setSelected] = useState<Dialog | null>(null);
+  const [stealthMode, setStealthMode] = useState(() => localStorage.getItem("stealth-mode") === "1");
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const deepLinkApplied = useRef(false);
+  const { toggle: toggleTheme } = useTheme();
 
-  const { data: me } = useQuery({
-    queryKey: ["me"],
-    queryFn: api.me,
-    staleTime: Infinity,
-  });
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me, staleTime: Infinity });
 
   const { data: dialogsData } = useQuery({
     queryKey: ["dialogs"],
@@ -92,35 +84,67 @@ function ChatApp() {
 
   useDesktopNotifications(dialogs, setSelected);
 
-  // Global keyboard shortcuts (desktop only)
+  // Persist stealth mode
+  useEffect(() => {
+    localStorage.setItem("stealth-mode", stealthMode ? "1" : "0");
+  }, [stealthMode]);
+
+  // Deep link: read ?c=chatId on first dialog load
+  useEffect(() => {
+    if (deepLinkApplied.current || dialogs.length === 0) return;
+    deepLinkApplied.current = true;
+    const chatId = new URLSearchParams(window.location.search).get("c");
+    if (!chatId) return;
+    const d = dialogs.find((x) => x.id === chatId);
+    if (d) setSelected(d);
+  }, [dialogs]);
+
+  // Deep link: update URL when selected changes
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selected) url.searchParams.set("c", selected.id);
+    else url.searchParams.delete("c");
+    window.history.replaceState({}, "", url.toString());
+  }, [selected?.id]);
+
+  // Global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      const inInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
         return;
       }
-      if (
-        e.key === "Escape" &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
-      ) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+        e.preventDefault();
+        setStealthMode((v) => !v);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+        e.preventDefault();
+        toggleTheme();
+        return;
+      }
+      if (e.key === "?" && !inInput) {
+        e.preventDefault();
+        setShowShortcuts(true);
+        return;
+      }
+      if (e.key === "Escape" && !inInput) {
         setSelected(null);
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [toggleTheme]);
 
   const meName =
-    [me?.firstName, me?.lastName].filter(Boolean).join(" ") ||
-    me?.username ||
-    "Me";
+    [me?.firstName, me?.lastName].filter(Boolean).join(" ") || me?.username || "Me";
 
-  // On mobile: show sidebar when no chat selected, show chat when selected
-  // On desktop: always show both columns
-  const showSidebar = !selected; // mobile gate; desktop ignores via CSS
+  const showSidebar = !selected;
 
   return (
     <div className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
@@ -128,24 +152,16 @@ function ChatApp() {
       {/* ── Sidebar ─────────────────────────────────────────────── */}
       <aside
         className={cn(
-          // Mobile: full-width, hidden when a chat is open
           "flex w-full flex-col border-r bg-card",
-          // Desktop: fixed 340 px column, always visible
           "md:flex md:w-[340px] md:shrink-0",
-          // Mobile visibility toggle
           selected ? "hidden md:flex" : "flex",
         )}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 border-b px-3 py-2.5">
+        <div className="flex items-center gap-1.5 border-b px-2 py-2">
           {me ? (
             <>
-              <ChatAvatar
-                peerId={me.id}
-                title={meName}
-                hasPhoto={true}
-                size={40}
-              />
+              <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={38} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{meName}</span>
@@ -156,14 +172,30 @@ function ChatApp() {
                   )}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {me.username
-                    ? `@${me.username}`
-                    : me.phone
-                      ? `+${me.phone}`
-                      : ""}
+                  {me.username ? `@${me.username}` : me.phone ? `+${me.phone}` : ""}
                 </div>
               </div>
+              {/* Stealth mode toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setStealthMode((v) => !v)}
+                title={stealthMode ? "Stealth ON: not marking messages as read (Ctrl+L)" : "Stealth OFF: marking messages as read (Ctrl+L)"}
+                className={cn("h-9 w-9 shrink-0", stealthMode && "text-amber-500")}
+              >
+                {stealthMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
               <ThemeToggle />
+              {/* Keyboard shortcuts */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowShortcuts(true)}
+                title="Keyboard shortcuts (?)"
+                className="h-9 w-9 shrink-0"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </Button>
               <LogoutButton />
             </>
           ) : (
@@ -188,7 +220,6 @@ function ChatApp() {
       <main
         className={cn(
           "flex min-w-0 flex-1 flex-col",
-          // Mobile: hidden when no chat selected; shown full-screen when selected
           selected ? "flex" : "hidden md:flex",
         )}
       >
@@ -197,24 +228,15 @@ function ChatApp() {
             key={`${selected.type}-${selected.id}`}
             dialog={selected}
             onBack={() => setSelected(null)}
+            stealthMode={stealthMode}
           />
         ) : (
-          // Desktop empty state
-          <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted/30 text-muted-foreground">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-card shadow-sm">
-              <MessageSquare className="h-7 w-7" />
-            </div>
-            <div className="text-sm">Select a chat to view messages</div>
-            <div className="text-xs text-muted-foreground/60">
-              Press{" "}
-              <kbd className="rounded border px-1 py-0.5 font-mono text-[10px]">
-                Ctrl+K
-              </kbd>{" "}
-              to search chats
-            </div>
-          </div>
+          <DiscoverPage onSelect={setSelected} />
         )}
       </main>
+
+      {/* Modals */}
+      <KeyboardShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>
   );
 }
@@ -235,10 +257,7 @@ function Home() {
     );
   }
 
-  if (!data?.authenticated) {
-    return <Login />;
-  }
-
+  if (!data?.authenticated) return <Login />;
   return <ChatApp />;
 }
 

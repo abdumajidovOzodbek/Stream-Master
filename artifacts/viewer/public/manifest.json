@@ -1,0 +1,20 @@
+{
+  "name": "Telegram Viewer",
+  "short_name": "TGViewer",
+  "description": "Your personal Telegram client in the browser",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "productivity"],
+  "lang": "en"
+}

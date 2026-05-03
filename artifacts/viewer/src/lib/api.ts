@@ -166,11 +166,12 @@ export const api = {
 
   photoUrl: (peerId: string) => `/api/photo/${encodeURIComponent(peerId)}`,
 
-  sendMessage: (chatId: string, text: string, replyToMsgId?: number) =>
+  sendMessage: (chatId: string, text: string, replyToMsgId?: number, scheduleDate?: number) =>
     postJson<{ id: number; date: number }>("/api/messages", {
       chatId,
       text,
       ...(replyToMsgId ? { replyToMsgId } : {}),
+      ...(scheduleDate ? { scheduleDate } : {}),
     }),
 
   sendMedia: (
@@ -206,6 +207,13 @@ export const api = {
     get<Dialog[]>(
       `/api/contacts/search?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+
+  ogData: (url: string) =>
+    get<{ title: string | null; description: string | null; image: string | null }>(
+      `/api/og?url=${encodeURIComponent(url)}`,
+    ),
+
+  folders: () => get<{ id: number; title: string }[]>("/api/folders"),
 
   authStatus: () =>
     get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),

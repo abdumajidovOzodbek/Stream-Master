@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Message } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Loader2, Send, X, CornerUpLeft, Paperclip, Image, FileText } from "lucide-react";
+import { Loader2, Send, X, CornerUpLeft, Paperclip, Image, FileText, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { summarizeReply } from "@/lib/format";
 
@@ -52,17 +52,50 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [showScheduler, setShowScheduler] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const qc = useQueryClient();
 
+  // ── Draft: load when chatId changes ────────────────────────────
+  useEffect(() => {
+    const saved = localStorage.getItem(`draft-${chatId}`) ?? "";
+    setText(saved);
+    setScheduleDate("");
+    setShowScheduler(false);
+    setAttachedFile(null);
+    setSendError(null);
+    requestAnimationFrame(() => {
+      if (taRef.current) {
+        taRef.current.style.height = "auto";
+        taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
+      }
+    });
+  }, [chatId]);
+
+  // ── Draft: save on text change (debounced 300 ms) ───────────────
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (text.trim()) localStorage.setItem(`draft-${chatId}`, text);
+      else localStorage.removeItem(`draft-${chatId}`);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [chatId, text]);
+
   const sendText = useMutation({
-    mutationFn: (msg: string) => api.sendMessage(chatId, msg, replyTo?.id),
-    onSuccess: async () => {
+    mutationFn: ({ msg, schedUnix }: { msg: string; schedUnix?: number }) =>
+      api.sendMessage(chatId, msg, replyTo?.id, schedUnix),
+    onSuccess: async (_, { schedUnix }) => {
       setText("");
+      setScheduleDate("");
+      setShowScheduler(false);
       setSendError(null);
+      localStorage.removeItem(`draft-${chatId}`);
       onClearReply();
-      await qc.invalidateQueries({ queryKey: ["messages", chatId, chatType] });
+      if (!schedUnix) {
+        await qc.invalidateQueries({ queryKey: ["messages", chatId, chatType] });
+      }
       await qc.invalidateQueries({ queryKey: ["dialogs"] });
       onSent?.();
       requestAnimationFrame(() => taRef.current?.focus());
@@ -75,7 +108,10 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
     onSuccess: async () => {
       setText("");
       setAttachedFile(null);
+      setScheduleDate("");
+      setShowScheduler(false);
       setSendError(null);
+      localStorage.removeItem(`draft-${chatId}`);
       onClearReply();
       await qc.invalidateQueries({ queryKey: ["messages", chatId, chatType] });
       await qc.invalidateQueries({ queryKey: ["dialogs"] });
@@ -103,12 +139,14 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
     if (attachedFile) { sendMedia.mutate(attachedFile); return; }
     const trimmed = text.trim();
     if (!trimmed) return;
-    sendText.mutate(trimmed);
+    const schedUnix = scheduleDate
+      ? Math.floor(new Date(scheduleDate).getTime() / 1000)
+      : undefined;
+    sendText.mutate({ msg: trimmed, schedUnix });
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape" && replyTo) { e.preventDefault(); onClearReply(); return; }
-    // Only send on Enter on non-mobile (desktop) — mobile users tap the Send button
     if (e.key === "Enter" && !e.shiftKey && window.innerWidth >= 768) {
       e.preventDefault();
       submit();
@@ -126,6 +164,9 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
 
   const canSend = !isPending && (!!attachedFile || !!text.trim());
 
+  // Minimum allowed schedule time (1 minute from now)
+  const minSchedule = new Date(Date.now() + 60_000).toISOString().slice(0, 16);
+
   return (
     <div
       className="border-t bg-card/80 px-3 py-2 backdrop-blur"
@@ -134,6 +175,35 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
       {(sendError || fileError) && (
         <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
           {sendError ?? fileError}
+        </div>
+      )}
+
+      {/* Scheduled message banner */}
+      {scheduleDate && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-300/40 bg-amber-50/60 px-2.5 py-2 dark:border-amber-700/40 dark:bg-amber-950/30">
+          <Clock className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="flex-1 text-[11px] text-amber-700 dark:text-amber-300">
+            Scheduled for {new Date(scheduleDate).toLocaleString()}
+          </span>
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+            onClick={() => setScheduleDate("")}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* Schedule picker */}
+      {showScheduler && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
+          <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <label className="shrink-0 text-xs text-muted-foreground">Send at</label>
+          <input
+            type="datetime-local"
+            value={scheduleDate}
+            min={minSchedule}
+            onChange={(e) => setScheduleDate(e.target.value)}
+            className="flex-1 bg-transparent text-sm outline-none"
+          />
         </div>
       )}
 
@@ -160,7 +230,7 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
       {attachedFile && <FilePreview file={attachedFile} onRemove={() => setAttachedFile(null)} />}
 
       <div className="flex items-end gap-2">
-        {/* Attach button — min 44px touch target */}
+        {/* Attach button */}
         <Button
           type="button" variant="ghost" size="icon"
           onClick={() => fileInputRef.current?.click()}
@@ -178,15 +248,29 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar"
         />
 
-        {/* Textarea — font-size 16px prevents iOS zoom-on-focus */}
+        {/* Schedule button */}
+        <Button
+          type="button" variant="ghost" size="icon"
+          onClick={() => setShowScheduler((v) => !v)}
+          disabled={isPending || !!attachedFile}
+          title="Schedule message"
+          className={cn(
+            "h-11 w-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground",
+            (showScheduler || scheduleDate) && "text-amber-500 hover:text-amber-600",
+          )}
+        >
+          <Clock className="h-5 w-5" />
+        </Button>
+
+        {/* Textarea */}
         <textarea
           ref={taRef}
           value={text}
           onChange={(e) => { setText(e.target.value); autoResize(); }}
           onKeyDown={onKeyDown}
           placeholder={
-            attachedFile ? "Add a caption…"
-              : chatType === "channel" ? "Write a message…"
+            scheduleDate ? "Type a scheduled message…"
+              : attachedFile ? "Add a caption…"
               : "Write a message…"
           }
           rows={1}
@@ -199,16 +283,22 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
           disabled={isPending}
         />
 
-        {/* Send button — min 44px touch target */}
+        {/* Send button */}
         <Button
           type="button" size="icon"
           onClick={submit}
           disabled={!canSend}
-          className="h-11 w-11 shrink-0 rounded-full"
+          className={cn(
+            "h-11 w-11 shrink-0 rounded-full",
+            scheduleDate && "bg-amber-500 hover:bg-amber-600",
+          )}
+          title={scheduleDate ? `Schedule for ${new Date(scheduleDate).toLocaleString()}` : "Send"}
         >
           {isPending
             ? <Loader2 className="h-5 w-5 animate-spin" />
-            : <Send className="h-5 w-5" />}
+            : scheduleDate
+              ? <Clock className="h-5 w-5" />
+              : <Send className="h-5 w-5" />}
         </Button>
       </div>
 
