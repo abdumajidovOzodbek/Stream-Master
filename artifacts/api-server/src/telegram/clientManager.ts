@@ -1,6 +1,7 @@
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { computeCheck } from "telegram/Password.js";
+import { EventEmitter } from "node:events";
 import { logger } from "../lib/logger";
 import { getSession, saveSession, clearSession } from "./sessionStore";
 import { registerUpdateHandlers } from "./telegramUpdates";
@@ -195,4 +196,154 @@ export async function registerHandlersForSession(sessionId: string): Promise<voi
 
 export function getCachedClient(sessionId: string): TelegramClient | null {
   return cache.get(sessionId)?.client ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// QR code login helpers
+// ---------------------------------------------------------------------------
+
+export type QrEvent =
+  | { type: "qr"; url: string; expires: number }
+  | { type: "needsPassword" }
+  | { type: "success" }
+  | { type: "error"; message: string };
+
+interface QrSession {
+  emitter: EventEmitter;
+  /** Resolve/reject for the 2FA password promise — both must be set together */
+  passwordResolve: ((pw: string) => void) | null;
+  passwordReject: ((err: Error) => void) | null;
+  /** Last QR token event so newly-connected SSE clients get an immediate frame */
+  lastQrEvent: (QrEvent & { type: "qr" }) | null;
+  /** Set to true when the session should abort */
+  cancelled: boolean;
+}
+
+const qrSessions = new Map<string, QrSession>();
+
+function createQrSession(sessionId: string): QrSession {
+  const s: QrSession = {
+    emitter: new EventEmitter(),
+    passwordResolve: null,
+    passwordReject: null,
+    lastQrEvent: null,
+    cancelled: false,
+  };
+  s.emitter.setMaxListeners(10);
+  qrSessions.set(sessionId, s);
+  return s;
+}
+
+export function getQrEmitter(sessionId: string): EventEmitter | null {
+  return qrSessions.get(sessionId)?.emitter ?? null;
+}
+
+/** Returns the most-recently-emitted QR token for replay to late SSE subscribers. */
+export function getLastQrEvent(sessionId: string): (QrEvent & { type: "qr" }) | null {
+  return qrSessions.get(sessionId)?.lastQrEvent ?? null;
+}
+
+export function cancelQrLogin(sessionId: string): void {
+  const s = qrSessions.get(sessionId);
+  if (!s) return;
+  s.cancelled = true;
+  // Unblock any pending 2FA password wait so the gramJS coroutine can exit
+  if (s.passwordReject) {
+    s.passwordReject(new Error("QR login cancelled"));
+    s.passwordReject = null;
+    s.passwordResolve = null;
+  }
+  s.emitter.emit("qr-event", { type: "error", message: "QR login cancelled" } satisfies QrEvent);
+  s.emitter.removeAllListeners();
+  qrSessions.delete(sessionId);
+  logger.info({ sessionId }, "QR login cancelled");
+}
+
+export function submitQrPassword(sessionId: string, password: string): boolean {
+  const s = qrSessions.get(sessionId);
+  if (!s || !s.passwordResolve) return false;
+  s.passwordResolve(password);
+  s.passwordResolve = null;
+  s.passwordReject = null;
+  return true;
+}
+
+export async function startQrLogin(sessionId: string): Promise<void> {
+  // Tear down any prior session first (also rejects a pending password wait)
+  cancelQrLogin(sessionId);
+  const session = createQrSession(sessionId);
+
+  let c: TelegramClient;
+  try {
+    c = await getClientForSession(sessionId);
+  } catch (err) {
+    // Clean up the map entry so we don't leave an orphaned session with no producer
+    qrSessions.delete(sessionId);
+    throw err;
+  }
+
+  void (async () => {
+    try {
+      await c.signInUserWithQrCode(
+        { apiId, apiHash },
+        {
+          onError: async (err: Error) => {
+            if (session.cancelled) return true;
+            logger.warn({ err, sessionId }, "QR login error");
+            session.emitter.emit("qr-event", { type: "error", message: err.message } satisfies QrEvent);
+            return false;
+          },
+          qrCode: async (qr: { token: Buffer; expires: number }) => {
+            if (session.cancelled) return;
+            const token = qr.token.toString("base64url");
+            const url = `tg://login?token=${token}`;
+            const event = { type: "qr" as const, url, expires: qr.expires };
+            session.lastQrEvent = event;
+            session.emitter.emit("qr-event", event satisfies QrEvent);
+          },
+          password: async () => {
+            if (session.cancelled) return "";
+            session.emitter.emit("qr-event", { type: "needsPassword" } satisfies QrEvent);
+            // Wait for the browser to POST /auth/qr/password — or for cancellation
+            const pw = await new Promise<string>((resolve, reject) => {
+              session.passwordResolve = resolve;
+              session.passwordReject = reject;
+            });
+            return pw;
+          },
+        },
+      );
+
+      if (session.cancelled) return;
+
+      const sessionString = (c.session as StringSession).save();
+      let meta: { userId?: string; firstName?: string; username?: string } = {};
+      try {
+        const me = (await c.getMe()) as Api.User;
+        meta = {
+          userId: me.id?.toString(),
+          firstName: me.firstName ?? undefined,
+          username: me.username ?? undefined,
+        };
+      } catch { /* best effort */ }
+
+      await saveSession(sessionId, { sessionString, ...meta });
+      registerHandlersForSession(sessionId);
+      logger.info({ sessionId }, "QR login succeeded, session saved");
+
+      session.emitter.emit("qr-event", { type: "success" } satisfies QrEvent);
+    } catch (err) {
+      // Swallow errors caused by our own cancellation; they are expected
+      if (session.cancelled) return;
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn({ err, sessionId }, "QR login flow failed");
+      session.emitter.emit("qr-event", { type: "error", message } satisfies QrEvent);
+    } finally {
+      // Only remove this specific session instance — a newer flow may have
+      // replaced it already (e.g. rapid retry), and we must not evict that one.
+      if (qrSessions.get(sessionId) === session) {
+        qrSessions.delete(sessionId);
+      }
+    }
+  })();
 }

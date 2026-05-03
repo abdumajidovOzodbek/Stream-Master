@@ -237,6 +237,15 @@ export const api = {
     postJson<{ ok: boolean; needsPassword?: boolean }>("/api/auth/sign-in", params),
 
   logout: () => postJson<{ ok: true }>("/api/auth/logout", {}),
+
+  qrStart: () => postJson<{ ok: true }>("/api/auth/qr/start", {}),
+
+  qrPassword: (password: string) =>
+    postJson<{ ok: true }>("/api/auth/qr/password", { password }),
+
+  qrCancel: () => postJson<{ ok: true }>("/api/auth/qr/cancel", {}),
+
+  getSessionId: () => getSessionId(),
 };
 
 // ---------------------------------------------------------------------------
