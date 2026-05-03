@@ -718,6 +718,39 @@ function MessageBubble({
   const senderName = msg.fromName ?? (isGroup ? "Unknown" : dialog.title);
   const nameColor = senderTextColor(senderId);
 
+  // Inline-footer mode: timestamp floats inline with text (Telegram-style).
+  // Disabled for messages that have an OG link card (card is full-width so footer goes below).
+  const hasOgCard = !!(msg.text && !msg.media && msg.text.match(URL_REGEX));
+  const useInlineFooter = !!msg.text && !hasOgCard;
+
+  // Footer content shared by both inline and block layouts
+  const footerItems = (
+    <>
+      {msg.editDate && (
+        <span
+          className="flex shrink-0 items-center gap-0.5"
+          title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
+        >
+          <Pencil className="h-2.5 w-2.5" />
+          <span>edited</span>
+        </span>
+      )}
+      {msg.views != null && (
+        <span className="flex shrink-0 items-center gap-0.5">
+          <Eye className="h-3 w-3" />
+          {msg.views.toLocaleString()}
+        </span>
+      )}
+      <span className="shrink-0">{formatTime(msg.date)}</span>
+      <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
+    </>
+  );
+
+  const footerCls = cn(
+    "flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] leading-tight select-none",
+    out ? "text-primary-foreground/75" : "text-muted-foreground/90",
+  );
+
   return (
     <MessageContextMenu msg={msg} dialog={dialog} onReply={onReply}>
       <div
@@ -813,9 +846,19 @@ function MessageBubble({
               </div>
             )}
 
-            {/* Text */}
+            {/* Text — with invisible trailing spacer when inline-footer is active.
+                The spacer reserves bottom-right space so the absolute timestamp
+                never overlaps real text (same trick Telegram Web uses). */}
             {msg.text && (
-              <div className="whitespace-pre-wrap break-words leading-[1.45]">{msg.text}</div>
+              <div className="whitespace-pre-wrap break-words leading-[1.45]">
+                {msg.text}
+                {useInlineFooter && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none inline-block h-[13px] w-[76px] select-none align-bottom"
+                  />
+                )}
+              </div>
             )}
 
             {/* Link preview (OG card) — only when no media and URL found in text */}
@@ -824,31 +867,16 @@ function MessageBubble({
               return match ? <OgCard url={match[0]} out={out} /> : null;
             })()}
 
-            {/* Footer: edited · views · time · status — must not wrap */}
-            <div
-              className={cn(
-                "mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[10px] leading-tight select-none",
-                out ? "text-primary-foreground/75" : "text-muted-foreground/90",
-              )}
-            >
-              {msg.editDate && (
-                <span
-                  className="flex shrink-0 items-center gap-0.5"
-                  title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
-                >
-                  <Pencil className="h-2.5 w-2.5" />
-                  edited
-                </span>
-              )}
-              {msg.views != null && (
-                <span className="flex shrink-0 items-center gap-0.5">
-                  <Eye className="h-3 w-3" />
-                  {msg.views.toLocaleString()}
-                </span>
-              )}
-              <span className="shrink-0">{formatTime(msg.date)}</span>
-              <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
-            </div>
+            {/* Footer — inline (absolute) when there is text, block otherwise */}
+            {useInlineFooter ? (
+              <div className={cn("absolute bottom-2 right-3.5", footerCls)}>
+                {footerItems}
+              </div>
+            ) : (
+              <div className={cn("mt-1 justify-end", footerCls)}>
+                {footerItems}
+              </div>
+            )}
           </div>
 
           {/* Reaction chips (outside bubble so they don't affect max-w) */}
