@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, type Dialog, type Message } from "@/lib/api";
-import { X, Loader2, ImageOff } from "lucide-react";
+import { X, Loader2, ImageOff, Film, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -155,7 +155,7 @@ export function SharedMediaPanel({ dialog, onClose, onOpenLightbox }: Props) {
                   className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2 text-xs"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                    🎬
+                    <Film className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
                     <div className="text-muted-foreground">
@@ -186,8 +186,8 @@ export function SharedMediaPanel({ dialog, onClose, onOpenLightbox }: Props) {
                   download={media.fileName}
                   className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2 text-xs transition-colors hover:bg-muted/60"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary text-lg">
-                    📎
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <FileText className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
                     <div className="truncate font-medium">{media.fileName}</div>

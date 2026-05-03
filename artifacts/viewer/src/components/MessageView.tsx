@@ -47,6 +47,7 @@ import {
   Images,
   Smile,
   ArrowLeft,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPresence, summarizeReply } from "@/lib/format";
@@ -90,7 +91,12 @@ function formatDateLabel(t: number): string {
 // Voice waveform
 // ---------------------------------------------------------------------------
 
-function VoiceWaveform({ url, duration }: { url: string; duration: number | null }) {
+// Static placeholder bars shown before audio is loaded (looks like a real waveform)
+const STATIC_BARS = Array.from({ length: 48 }, (_, i) =>
+  Math.min(1, Math.max(0.06, 0.5 + Math.sin(i * 0.7) * 0.28 + Math.sin(i * 1.9 + 1) * 0.16)),
+);
+
+function VoiceWaveform({ url, duration, out }: { url: string; duration: number | null; out: boolean }) {
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [bars, setBars] = useState<number[]>([]);
   const [playing, setPlaying] = useState(false);
@@ -98,6 +104,12 @@ function VoiceWaveform({ url, duration }: { url: string; duration: number | null
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const N = 48;
+
+  // Colour scheme adapts to bubble type
+  const btnCls = out
+    ? "bg-white/25 text-white hover:bg-white/35"
+    : "bg-primary/15 text-primary hover:bg-primary/20";
+  const timeCls = out ? "text-primary-foreground/65" : "text-muted-foreground";
 
   async function load() {
     setLoadState("loading");
@@ -161,40 +173,53 @@ function VoiceWaveform({ url, duration }: { url: string; duration: number | null
       <button
         type="button"
         onClick={() => void load()}
-        className="flex items-center gap-3 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/40 px-4 py-2.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        className="flex items-center gap-2.5 py-0.5 transition-opacity hover:opacity-80"
       >
-        <Mic className="h-4 w-4 shrink-0" />
-        <div className="flex flex-col items-start">
-          <span className="text-xs font-medium">Voice message</span>
-          {duration && <span className="text-[10px] opacity-70">{formatDuration(duration)}</span>}
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors", btnCls)}>
+          <Play className="h-4 w-4 translate-x-px fill-current" />
         </div>
-        <Play className="ml-2 h-4 w-4 fill-current" />
+        <div className="flex min-w-[120px] flex-col gap-0.5">
+          <div className="flex h-8 items-end gap-px">
+            {STATIC_BARS.map((h, i) => (
+              <span
+                key={i}
+                className={cn("w-[2px] rounded-[1px]", out ? "bg-white/30" : "bg-muted-foreground/25")}
+                style={{ height: `${Math.round(h * 24)}px` }}
+              />
+            ))}
+          </div>
+          {duration != null && (
+            <span className={cn("text-[10px]", timeCls)}>{formatDuration(duration)}</span>
+          )}
+        </div>
       </button>
     );
   }
 
   if (loadState === "loading") {
     return (
-      <div className="flex items-center gap-2 py-1 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-xs">Decoding audio…</span>
+      <div className="flex items-center gap-2.5 py-0.5">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", btnCls)}>
+          <Loader2 className="h-4 w-4 animate-spin" />
+        </div>
+        <span className={cn("text-xs", timeCls)}>Decoding…</span>
       </div>
     );
   }
 
   if (loadState === "error") {
     return (
-      <div className="flex items-center gap-2 py-1 text-destructive text-xs">
+      <div className="flex items-center gap-2 py-0.5 text-xs text-destructive">
         <Mic className="h-4 w-4" /> Could not load voice message
       </div>
     );
   }
 
-  const W = 192;
+  const W = 180;
   const H = 32;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5 py-0.5">
       <audio
         ref={audioRef}
         src={url}
@@ -209,11 +234,13 @@ function VoiceWaveform({ url, duration }: { url: string; duration: number | null
       <button
         type="button"
         onClick={togglePlay}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90"
+        className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-80", btnCls)}
       >
-        {playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+        {playing
+          ? <Pause className="h-4 w-4 fill-current" />
+          : <Play className="h-4 w-4 translate-x-px fill-current" />}
       </button>
-      <div className="flex flex-col gap-0.5">
+      <div className="flex min-w-[120px] flex-col gap-0.5">
         <svg
           width={W}
           height={H}
@@ -235,12 +262,14 @@ function VoiceWaveform({ url, duration }: { url: string; duration: number | null
                 width={barW}
                 height={barH}
                 rx={1}
-                className={filled ? "fill-primary" : "fill-muted-foreground/30"}
+                className={filled
+                  ? (out ? "fill-white/90" : "fill-primary")
+                  : (out ? "fill-white/30" : "fill-muted-foreground/30")}
               />
             );
           })}
         </svg>
-        <span className="text-[10px] text-muted-foreground">
+        <span className={cn("text-[10px]", timeCls)}>
           {formatDuration(Math.round((audioRef.current?.currentTime ?? 0))) || formatDuration(duration)}
         </span>
       </div>
@@ -375,9 +404,9 @@ function VideoBlock({ media }: { media: Extract<MessageMedia, { kind: "video" }>
 // Audio
 // ---------------------------------------------------------------------------
 
-function AudioBlock({ media }: { media: Extract<MessageMedia, { kind: "audio" | "voice" }>; out: boolean }) {
+function AudioBlock({ media, out }: { media: Extract<MessageMedia, { kind: "audio" | "voice" }>; out: boolean }) {
   if (media.kind === "voice") {
-    return <VoiceWaveform url={media.url} duration={media.duration} />;
+    return <VoiceWaveform url={media.url} duration={media.duration} out={out} />;
   }
   const [load, setLoad] = useState(false);
   if (!load) {
@@ -1213,19 +1242,24 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           )}
 
           {isLoading && (
-            <div className="flex items-center justify-center py-20 text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Loading messages…
+            <div className="flex items-center justify-center py-20">
+              <div className="flex items-center gap-2 rounded-full bg-card/90 px-4 py-2 shadow-sm backdrop-blur-sm border border-border/50">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Loading messages…</span>
+              </div>
             </div>
           )}
           {error && (
-            <div className="m-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+            <div className="m-4 rounded-xl border border-destructive/40 bg-card/90 p-3 text-sm text-destructive backdrop-blur-sm">
               {(error as Error).message}
             </div>
           )}
           {!isLoading && allMessages.length === 0 && !error && (
-            <div className="flex h-full items-center justify-center py-20 text-sm text-muted-foreground">
-              No messages
+            <div className="flex h-full items-center justify-center py-20">
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-card/90 px-8 py-6 shadow-sm backdrop-blur-sm border border-border/50">
+                <MessageSquare className="h-9 w-9 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">No messages yet</p>
+              </div>
             </div>
           )}
 
@@ -1233,20 +1267,24 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
             <div className="space-y-0 px-2 py-3 sm:px-4 sm:py-4">
               <div ref={topSentinelRef} />
               {hasNextPage && (
-                <div className="flex justify-center py-2 text-xs text-muted-foreground">
+                <div className="flex justify-center py-2">
                   {isFetchingNextPage ? (
-                    <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-2 rounded-full bg-card/90 px-3.5 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
                       <Loader2 className="h-3 w-3 animate-spin" />
                       Loading older messages…
                     </span>
                   ) : (
-                    <span>Scroll up for more</span>
+                    <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
+                      Scroll up for more
+                    </span>
                   )}
                 </div>
               )}
               {!hasNextPage && (
-                <div className="py-2 text-center text-[11px] text-muted-foreground">
-                  Beginning of chat history
+                <div className="flex justify-center py-2">
+                  <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
+                    Beginning of conversation
+                  </span>
                 </div>
               )}
 
