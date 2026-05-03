@@ -63,16 +63,21 @@ export function Login() {
   const busy = sendCode.isPending || signIn.isPending;
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4"
-      style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, hsl(var(--primary) / 0.12), transparent 70%), hsl(var(--background))" }}>
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-xl shadow-black/5">
-        <div className="mb-8 flex flex-col items-center gap-4 text-center">
+    <div
+      className="flex min-h-[100dvh] w-full items-start justify-center overflow-y-auto p-4 py-8 sm:items-center"
+      style={{
+        background:
+          "radial-gradient(ellipse 80% 60% at 50% 0%, hsl(var(--primary) / 0.12), transparent 70%), hsl(var(--background))",
+      }}
+    >
+      <div className="w-full max-w-sm rounded-2xl border bg-card p-7 shadow-xl shadow-black/5 sm:p-8">
+        <div className="mb-7 flex flex-col items-center gap-4 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">
             <MessageSquare className="h-8 w-8" />
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Sign in to Telegram</h1>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               {step === "phone" && "Enter your phone number with country code."}
               {step === "code" &&
                 "We sent a code to your Telegram app. Enter it below."}
@@ -85,7 +90,7 @@ export function Login() {
         <form onSubmit={onSubmit} className="space-y-3">
           {step === "phone" && (
             <div>
-              <label className="mb-1 block text-xs font-medium">
+              <label className="mb-1.5 block text-sm font-medium">
                 Phone number
               </label>
               <input
@@ -94,7 +99,7 @@ export function Login() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+1 234 567 8900"
-                className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none ring-0 transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none ring-0 transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 disabled={busy}
               />
             </div>
@@ -102,7 +107,7 @@ export function Login() {
 
           {step === "code" && (
             <>
-              <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-md bg-muted px-3 py-2.5 text-sm text-muted-foreground">
                 Phone: <span className="font-medium">{phone}</span>
                 <button
                   type="button"
@@ -117,7 +122,7 @@ export function Login() {
                 </button>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium">
+                <label className="mb-1.5 block text-sm font-medium">
                   Login code
                 </label>
                 <input
@@ -128,7 +133,7 @@ export function Login() {
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="12345"
                   maxLength={6}
-                  className="w-full rounded-xl border bg-background px-3 py-2.5 text-center font-mono text-lg tracking-widest outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-xl border bg-background px-3 text-center font-mono text-lg tracking-widest outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   disabled={busy}
                 />
               </div>
@@ -137,11 +142,11 @@ export function Login() {
 
           {step === "password" && (
             <>
-              <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <div className="rounded-md bg-muted px-3 py-2.5 text-sm text-muted-foreground">
                 Phone: <span className="font-medium">{phone}</span>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium">
+                <label className="mb-1.5 block text-sm font-medium">
                   Password
                 </label>
                 <input
@@ -150,7 +155,7 @@ export function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Your 2FA password"
-                  className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   disabled={busy}
                 />
               </div>
@@ -158,12 +163,12 @@ export function Login() {
           )}
 
           {error && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={busy}>
+          <Button type="submit" className="h-11 w-full text-sm" disabled={busy}>
             {busy ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -173,7 +178,7 @@ export function Login() {
           </Button>
         </form>
 
-        <p className="mt-4 text-center text-[10px] text-muted-foreground">
+        <p className="mt-5 text-center text-xs text-muted-foreground">
           Sessions are stored locally on this server. Never share your login code.
         </p>
       </div>

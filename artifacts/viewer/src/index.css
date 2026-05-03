@@ -224,31 +224,66 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* Prevent horizontal scroll at root level */
+    overflow-x: hidden;
+    /* iOS Safari keyboard-safe height fallback */
+    height: -webkit-fill-available;
   }
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    /* Base font size: slightly larger on mobile for readability */
+    font-size: clamp(15px, 2vw, 16px);
+    overflow-x: hidden;
+    /* Fallback for browsers without dvh support */
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
   }
 
-  /* Elegant thin scrollbar across all browsers */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+  /* DVH fallback: prefer dvh, fall back to fill-available on old iOS */
+  .h-dvh {
+    height: 100dvh;
   }
-  *::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+  @supports not (height: 100dvh) {
+    .h-dvh {
+      height: 100vh;
+      height: -webkit-fill-available;
+    }
   }
-  *::-webkit-scrollbar-track {
-    background: transparent;
+
+  /* ── Scrollbars: hidden on touch, styled on pointer devices ── */
+
+  /* Touch devices — hide scrollbars completely */
+  @media (pointer: coarse) {
+    * {
+      scrollbar-width: none;
+    }
+    *::-webkit-scrollbar {
+      display: none;
+    }
   }
-  *::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.25);
-    border-radius: 9999px;
-  }
-  *::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.45);
+
+  /* Pointer (mouse) devices — subtle thin scrollbar */
+  @media (pointer: fine) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+    }
+    *::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: hsl(var(--muted-foreground) / 0.22);
+      border-radius: 9999px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--muted-foreground) / 0.42);
+    }
   }
 
   ::selection {
@@ -288,12 +323,14 @@
   /* Incoming bubble — crisp white card with shadow instead of flat border */
   .bubble-in {
     background: #ffffff;
+    color: hsl(222 47% 10%);
     box-shadow:
       0 1px 2px rgb(0 0 0 / 0.10),
       0 0 0 0.5px rgb(0 0 0 / 0.06);
   }
   :is(.dark *) .bubble-in {
     background: hsl(215 28% 16%);
+    color: hsl(210 38% 97%);
     box-shadow:
       0 1px 4px rgb(0 0 0 / 0.40),
       0 0 0 0.5px rgb(255 255 255 / 0.04);
@@ -303,7 +340,37 @@
   .glass {
     backdrop-filter: blur(16px) saturate(1.6);
     -webkit-backdrop-filter: blur(16px) saturate(1.6);
-    background: hsl(var(--background) / 0.80);
+    background: hsl(var(--background) / 0.85);
+  }
+  :is(.dark *) .glass {
+    background: hsl(var(--background) / 0.88);
+  }
+
+  /* Minimum 44px touch target helper */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /*
+   * Expands the invisible hit area of an element to ≥44×44px without
+   * changing the visual appearance. Apply to `relative`-positioned elements.
+   * The ::after pseudo-element is centered over the visual element.
+   */
+  .expand-hit-area {
+    position: relative;
+  }
+  .expand-hit-area::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .no-default-hover-elevate {}

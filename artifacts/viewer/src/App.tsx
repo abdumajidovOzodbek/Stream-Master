@@ -52,7 +52,7 @@ function ThemeToggle() {
       size="icon"
       onClick={toggle}
       title={theme === "dark" ? "Switch to light mode (Ctrl+D)" : "Switch to dark mode (Ctrl+D)"}
-      className="h-8 w-8 shrink-0"
+      className="h-10 w-10 shrink-0"
       data-testid="button-theme-toggle"
     >
       {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -83,7 +83,7 @@ function ImpersonationBanner({ onReturn }: { onReturn: () => void }) {
       <Button
         variant="ghost"
         size="sm"
-        className="h-6 gap-1 px-2 text-[11px] text-amber-700 hover:bg-amber-100 dark:text-amber-300"
+        className="h-8 gap-1 px-2 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300"
         onClick={() => void handleReturn()}
         disabled={stopping}
       >
@@ -93,7 +93,7 @@ function ImpersonationBanner({ onReturn }: { onReturn: () => void }) {
       <Button
         variant="ghost"
         size="sm"
-        className="h-6 gap-1 px-2 text-[11px] text-amber-700 hover:bg-amber-100 dark:text-amber-300"
+        className="h-8 gap-1 px-2 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300"
         asChild
       >
         <a href="/admin">
@@ -183,26 +183,40 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
   const meName =
     [me?.firstName, me?.lastName].filter(Boolean).join(" ") || me?.username || "Me";
 
-  const showSidebar = !selected;
+  function handleSelect(d: Dialog) {
+    setSelected(d);
+  }
+
+  function handleBack() {
+    setSelected(null);
+  }
 
   return (
-    <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="h-dvh flex w-screen flex-col overflow-hidden bg-background text-foreground">
       {impersonating && <ImpersonationBanner onReturn={() => { window.location.href = "/admin"; }} />}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Pane container — relative+overflow-hidden is needed for mobile absolute positioning */}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* ── Sidebar ─────────────────────────────────────────────── */}
         <aside
           className={cn(
-            "flex w-full flex-col border-r bg-sidebar",
-            "md:flex md:w-[320px] md:shrink-0",
-            selected ? "hidden md:flex" : "flex",
+            "flex flex-col border-r bg-sidebar",
+            // Mobile: absolutely positioned so both panes can animate simultaneously
+            "absolute inset-y-0 left-0 w-full",
+            // Desktop: normal flex child with responsive width
+            "md:relative md:inset-auto md:w-[280px] md:shrink-0 lg:w-[320px] xl:w-[360px]",
+            // Slide transition — CSS transform so both panes animate together
+            "transition-transform duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+            // md+ always visible, override any mobile translate
+            "md:!translate-x-0",
+            selected ? "-translate-x-full" : "translate-x-0",
           )}
         >
           {/* Header */}
-          <div className="flex items-center gap-2 border-b px-3 py-2.5">
+          <div className="flex items-center gap-2 border-b px-3 py-2">
             {me ? (
               <>
-                <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={36} />
+                <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={38} />
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-semibold leading-tight">{meName}</span>
@@ -217,13 +231,13 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
                   </div>
                 </div>
 
-                {/* Stealth mode toggle */}
+                {/* Stealth mode toggle — 44px touch target */}
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setStealthMode((v) => !v)}
                   title={stealthMode ? "Stealth ON — not sending read receipts (Ctrl+L)" : "Stealth OFF — sending read receipts (Ctrl+L)"}
-                  className={cn("h-8 w-8 shrink-0", stealthMode ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground")}
+                  className={cn("h-10 w-10 shrink-0", stealthMode ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground")}
                 >
                   {stealthMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -233,7 +247,7 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
                 {/* More menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground">
+                    <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground">
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -272,7 +286,7 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
             <ChatList
               ref={searchRef}
               selectedId={selected?.id ?? null}
-              onSelect={(d) => setSelected(d)}
+              onSelect={handleSelect}
             />
           </div>
         </aside>
@@ -280,19 +294,26 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
         {/* ── Main content ─────────────────────────────────────────── */}
         <main
           className={cn(
-            "flex min-w-0 flex-1 flex-col",
-            selected ? "flex" : "hidden md:flex",
+            "flex min-w-0 flex-col",
+            // Mobile: absolutely positioned to the right of the sidebar, slides in/out
+            "absolute inset-y-0 left-0 w-full",
+            // Desktop: normal flex child, takes remaining space
+            "md:relative md:inset-auto md:flex-1",
+            // Slide transition — mirrors the sidebar so both animate simultaneously
+            "transition-transform duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "md:!translate-x-0",
+            selected ? "translate-x-0" : "translate-x-full",
           )}
         >
           {selected ? (
             <MessageView
               key={`${selected.type}-${selected.id}`}
               dialog={selected}
-              onBack={() => setSelected(null)}
+              onBack={handleBack}
               stealthMode={stealthMode}
             />
           ) : (
-            <DiscoverPage onSelect={setSelected} />
+            <DiscoverPage onSelect={handleSelect} />
           )}
         </main>
       </div>
@@ -313,7 +334,7 @@ function Home() {
 
   if (isLoading) {
     return (
-      <div className="flex h-[100dvh] w-screen items-center justify-center bg-muted/30">
+      <div className="h-dvh flex w-screen items-center justify-center bg-muted/30">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );

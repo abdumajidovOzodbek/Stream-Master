@@ -173,10 +173,11 @@ function VoiceWaveform({ url, duration, out }: { url: string; duration: number |
       <button
         type="button"
         onClick={() => void load()}
-        className="flex items-center gap-2.5 py-0.5 transition-opacity hover:opacity-80"
+        className="flex min-h-[44px] items-center gap-2.5 py-1 transition-opacity hover:opacity-80"
       >
-        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors", btnCls)}>
-          <Play className="h-4 w-4 translate-x-px fill-current" />
+        {/* 44px play button */}
+        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors", btnCls)}>
+          <Play className="h-5 w-5 translate-x-px fill-current" />
         </div>
         <div className="flex min-w-[120px] flex-col gap-0.5">
           <div className="flex h-8 items-end gap-px">
@@ -198,9 +199,9 @@ function VoiceWaveform({ url, duration, out }: { url: string; duration: number |
 
   if (loadState === "loading") {
     return (
-      <div className="flex items-center gap-2.5 py-0.5">
-        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", btnCls)}>
-          <Loader2 className="h-4 w-4 animate-spin" />
+      <div className="flex min-h-[44px] items-center gap-2.5 py-1">
+        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", btnCls)}>
+          <Loader2 className="h-5 w-5 animate-spin" />
         </div>
         <span className={cn("text-xs", timeCls)}>Decoding…</span>
       </div>
@@ -231,14 +232,15 @@ function VoiceWaveform({ url, duration, out }: { url: string; duration: number |
         }}
         className="hidden"
       />
+      {/* 44px touch target for play/pause */}
       <button
         type="button"
         onClick={togglePlay}
-        className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-80", btnCls)}
+        className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-80", btnCls)}
       >
         {playing
-          ? <Pause className="h-4 w-4 fill-current" />
-          : <Play className="h-4 w-4 translate-x-px fill-current" />}
+          ? <Pause className="h-5 w-5 fill-current" />
+          : <Play className="h-5 w-5 translate-x-px fill-current" />}
       </button>
       <div className="flex min-w-[120px] flex-col gap-0.5">
         <svg
@@ -349,8 +351,8 @@ function PhotoBlock({
 function VideoBlock({ media }: { media: Extract<MessageMedia, { kind: "video" }> }) {
   const [load, setLoad] = useState(false);
   const ratio = media.width && media.height ? media.width / media.height : 16 / 9;
-  const w = 320;
-  const h = Math.round(w / ratio);
+  // Use CSS aspect-ratio so the placeholder scales correctly on narrow screens
+  const aspectRatio = `${ratio}`;
 
   if (!load) {
     return (
@@ -358,8 +360,8 @@ function VideoBlock({ media }: { media: Extract<MessageMedia, { kind: "video" }>
         <button
           type="button"
           onClick={() => setLoad(true)}
-          className="group relative flex items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-          style={{ width: w, height: h }}
+          className="group relative flex w-full max-w-[320px] items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+          style={{ aspectRatio }}
         >
           <div className="flex flex-col items-center gap-2">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-background/80 shadow-md">
@@ -590,17 +592,19 @@ function ReactionChips({
 
   if (reactions.length === 0 && !showPicker) {
     return (
+      // expand-hit-area pseudo-element makes the invisible tap area ≥44×44px
       <button
         type="button"
         onClick={() => setShowPicker(true)}
         className={cn(
-          "mt-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity",
+          "expand-hit-area mt-1 flex items-center justify-center gap-0.5 rounded-full px-2.5 py-1.5 text-[11px]",
+          "opacity-0 group-hover:opacity-100 transition-opacity",
           out
             ? "bg-white/10 text-primary-foreground/70 hover:bg-white/20"
             : "bg-muted text-muted-foreground hover:bg-muted/80",
         )}
       >
-        <Smile className="h-3 w-3" />
+        <Smile className="h-3.5 w-3.5" />
       </button>
     );
   }
@@ -608,13 +612,14 @@ function ReactionChips({
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1">
       {reactions.map((r) => (
+        // expand-hit-area gives a ≥44px invisible tap zone while the pill stays visually compact
         <button
           key={r.emoji}
           type="button"
           onClick={() => toggle.mutate({ emoji: r.emoji, chosen: r.chosen })}
           disabled={toggle.isPending}
           className={cn(
-            "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors",
+            "expand-hit-area flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs transition-colors",
             r.chosen
               ? out
                 ? "bg-white/20 text-primary-foreground"
@@ -632,17 +637,17 @@ function ReactionChips({
         type="button"
         onClick={() => setShowPicker(!showPicker)}
         className={cn(
-          "flex items-center rounded-full px-1.5 py-0.5 text-[11px] transition-colors",
+          "expand-hit-area flex items-center rounded-full px-2.5 py-1.5 text-[11px] transition-colors",
           out
             ? "bg-white/10 text-primary-foreground/70 hover:bg-white/20"
             : "bg-muted text-muted-foreground hover:bg-muted/80",
         )}
       >
-        <Smile className="h-3 w-3" />
+        <Smile className="h-3.5 w-3.5" />
       </button>
       {showPicker && (
         <div className={cn(
-          "absolute z-20 mt-1 flex gap-1 rounded-xl border bg-card p-2 shadow-lg",
+          "absolute z-20 mt-1 flex gap-0.5 rounded-xl border bg-card p-2 shadow-lg",
           out ? "right-0" : "left-0",
         )} style={{ bottom: "100%" }}>
           {COMMON_REACTIONS.map((emoji) => {
@@ -656,7 +661,8 @@ function ReactionChips({
                   setShowPicker(false);
                 }}
                 className={cn(
-                  "rounded-lg p-1.5 text-lg transition-colors hover:bg-muted",
+                  // expand-hit-area ensures ≥44px tap zone on touch devices
+                  "expand-hit-area rounded-lg p-2 text-xl transition-colors hover:bg-muted active:scale-95",
                   existing?.chosen && "bg-primary/10",
                 )}
               >
@@ -827,18 +833,18 @@ function MessageBubble({
                 : "rounded-bl-sm bubble-in",
             )}
           >
-            {/* Hover reply button */}
+            {/* Hover reply button — 44px touch target */}
             <button
               type="button"
               onClick={() => onReply(msg)}
               aria-label="Reply"
               className={cn(
-                "absolute -top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100",
-                "flex h-7 w-7 items-center justify-center rounded-full bg-card text-foreground border",
-                out ? "-left-9" : "-right-9",
+                "absolute -top-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100",
+                "flex h-11 w-11 items-center justify-center rounded-full bg-card text-foreground border",
+                out ? "-left-12" : "-right-12",
               )}
             >
-              <Reply className="h-3.5 w-3.5" />
+              <Reply className="h-4 w-4" />
             </button>
 
             {/* Sender name (top of run) — truncated so long names don't wrap */}
@@ -1155,14 +1161,14 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
       {/* Main chat column */}
       <div className="flex h-full min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-2 border-b glass px-2 py-2 md:gap-3 md:px-4 md:py-3 sticky top-0 z-10">
-          {/* Back button — mobile only */}
+        <div className="flex items-center gap-2 border-b glass px-2 py-1.5 md:gap-3 md:px-4 md:py-2 sticky top-0 z-10">
+          {/* Back button — mobile only, 44px touch target */}
           {onBack && (
             <Button
               variant="ghost"
               size="icon"
               onClick={onBack}
-              className="h-10 w-10 shrink-0 md:hidden"
+              className="h-11 w-11 shrink-0 md:hidden"
               aria-label="Back to chats"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -1185,14 +1191,14 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
             </div>
           </div>
 
-          {/* Header actions */}
+          {/* Header actions — 44px touch targets */}
           <div className="flex shrink-0 items-center gap-0.5">
             <Button
               variant="ghost"
               size="icon"
               title="Search in chat (Ctrl+F)"
               onClick={() => setShowSearch((v) => !v)}
-              className={cn("h-10 w-10", showSearch && "bg-primary/10 text-primary")}
+              className={cn("h-11 w-11", showSearch && "bg-primary/10 text-primary")}
             >
               <Search className="h-4 w-4" />
             </Button>
@@ -1201,12 +1207,12 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
               size="icon"
               title="Shared media"
               onClick={() => setShowSharedMedia((v) => !v)}
-              className={cn("h-10 w-10", showSharedMedia && "bg-primary/10 text-primary")}
+              className={cn("h-11 w-11", showSharedMedia && "bg-primary/10 text-primary")}
             >
               <Images className="h-4 w-4" />
             </Button>
             {dialog.username && (
-              <Button asChild variant="ghost" size="icon" className="hidden sm:flex">
+              <Button asChild variant="ghost" size="icon" className="hidden sm:flex h-11 w-11">
                 <a href={`https://t.me/${dialog.username}`} target="_blank" rel="noreferrer"
                   title="Open in Telegram">
                   <ExternalLink className="h-4 w-4" />

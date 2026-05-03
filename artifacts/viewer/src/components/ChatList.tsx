@@ -136,7 +136,7 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
               placeholder="Search chats or find anyone…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 rounded-full pl-8.5 text-sm"
+              className="h-10 rounded-full pl-8.5 text-sm"
             />
             {(isSearching || (search.trim() !== debouncedSearch && search.trim().length >= 2)) && (
               <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -146,7 +146,10 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
 
         {/* Filter tabs — hide while searching globally */}
         {!showGlobalSection && (
-          <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2" style={{ scrollbarWidth: "none" }}>
+          <div
+            className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+          >
             {TABS.map((t) => {
               const count = unreadCounts[t.key];
               const active = tab === t.key;
@@ -156,15 +159,17 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
                   type="button"
                   onClick={() => setTab(t.key)}
                   className={cn(
-                    "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150",
+                    // Min 44px touch target height
+                    "flex shrink-0 items-center gap-1 rounded-full px-3.5 py-2.5 text-sm font-medium transition-all duration-150",
+                    "min-h-[44px]",
                     active
                       ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80",
                   )}
                 >
                   {t.label}
                   {count > 0 && !active && (
-                    <span className="ml-0.5 min-w-[16px] rounded-full bg-primary/15 px-1 text-[10px] leading-4 text-primary">
+                    <span className="ml-0.5 min-w-[18px] rounded-full bg-primary/15 px-1 text-[11px] leading-[18px] text-primary">
                       {count > 99 ? "99+" : count}
                     </span>
                   )}
@@ -292,7 +297,8 @@ function ChatRow({
         type="button"
         onClick={() => onSelect(d)}
         className={cn(
-          "flex min-h-[62px] w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-all duration-100",
+          // min-h-[64px] ensures 44px+ touch target with padding room
+          "flex min-h-[64px] w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-all duration-100",
           selected
             ? "bg-primary/10 ring-1 ring-primary/20"
             : "hover:bg-muted/60 active:bg-muted/80",
