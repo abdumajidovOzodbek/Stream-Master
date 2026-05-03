@@ -5,6 +5,7 @@ import {
   listDialogs,
   listMessages,
   searchMessages,
+  searchContacts,
   getUserInfo,
   getProfilePhoto,
   openMessageMedia,
@@ -51,6 +52,17 @@ router.get("/dialogs", async (req: Request, res: Response) => {
     res.json({ count: dialogs.length, dialogs });
   } catch (err) {
     handleError(req, res, err, "Failed to fetch dialogs");
+  }
+});
+
+router.get("/contacts/search", async (req: Request, res: Response) => {
+  const q = ((req.query["q"] as string | undefined) ?? "").trim();
+  if (!q) { res.status(400).json({ error: "Missing query param: q" }); return; }
+  const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 50);
+  try {
+    res.json(await searchContacts(q, limit));
+  } catch (err) {
+    handleError(req, res, err, "Failed to search contacts");
   }
 });
 

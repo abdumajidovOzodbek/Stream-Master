@@ -794,3 +794,56 @@ export async function openMessageMedia(
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Global contact / channel / bot search
+// ---------------------------------------------------------------------------
+
+export async function searchContacts(q: string, limit = 20): Promise<DialogEntry[]> {
+  const client = await getTelegramClient();
+
+  const result = await client.invoke(new Api.contacts.Search({ q, limit }));
+
+  const entityMap = new Map<string, unknown>();
+  for (const chat of result.chats) {
+    entityMap.set(bigToString((chat as { id: unknown }).id), chat);
+  }
+  for (const user of result.users) {
+    entityMap.set(bigToString((user as { id: unknown }).id), user);
+  }
+
+  const out: DialogEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const r of [...result.myResults, ...result.results]) {
+    let entityId: string;
+    if (r instanceof Api.PeerUser) entityId = bigToString(r.userId);
+    else if (r instanceof Api.PeerChannel) entityId = bigToString(r.channelId);
+    else if (r instanceof Api.PeerChat) entityId = bigToString(r.chatId);
+    else continue;
+
+    if (seen.has(entityId)) continue;
+    seen.add(entityId);
+
+    const entity = entityMap.get(entityId);
+    if (!entity) continue;
+
+    out.push({
+      id: bigToString((entity as { id: unknown }).id),
+      type: entityType(entity),
+      title: entityTitle(entity),
+      username: (entity as { username?: string }).username ?? null,
+      unreadCount: 0,
+      isPinned: false,
+      isVerified: (entity as { verified?: boolean }).verified ?? false,
+      isBot: entity instanceof Api.User ? (entity.bot ?? false) : false,
+      hasPhoto: !!(entity as { photo?: unknown }).photo,
+      readInboxMaxId: null,
+      readOutboxMaxId: null,
+      presence: entity instanceof Api.User ? userPresence(entity) : null,
+      lastMessage: null,
+    });
+  }
+
+  return out;
+}

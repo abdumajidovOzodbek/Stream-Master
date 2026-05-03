@@ -1,11 +1,11 @@
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Dialog } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Search, BadgeCheck, Bot, Pin } from "lucide-react";
+import { Loader2, Search, BadgeCheck, Bot, Pin, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FilterTab = "all" | "unread" | "groups" | "channels" | "bots";
@@ -43,10 +43,21 @@ interface ChatListProps {
   onSelect: (d: Dialog) => void;
 }
 
+/** Debounce a value by `delay` ms */
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
   function ChatList({ selectedId, onSelect }, searchRef) {
     const [search, setSearch] = useState("");
     const [tab, setTab] = useState<FilterTab>("all");
+    const debouncedSearch = useDebounce(search.trim(), 400);
 
     const { data, isLoading, error } = useQuery({
       queryKey: ["dialogs"],
@@ -55,12 +66,29 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
       refetchInterval: 15_000,
     });
 
+    // Global Telegram search — fires only when there's a debounced query
+    const {
+      data: globalResults,
+      isLoading: isSearching,
+      error: searchError,
+    } = useQuery({
+      queryKey: ["contacts-search", debouncedSearch],
+      queryFn: () => api.searchContacts(debouncedSearch, 25),
+      enabled: debouncedSearch.length >= 2,
+      staleTime: 30_000,
+    });
+
     const allDialogs = data?.dialogs ?? [];
+
+    // IDs already in our dialog list — used to de-duplicate global results
+    const dialogIdSet = useMemo(
+      () => new Set(allDialogs.map((d) => d.id)),
+      [allDialogs],
+    );
 
     const filtered = useMemo(() => {
       let list = allDialogs;
 
-      // Text search
       if (search.trim()) {
         const q = search.toLowerCase();
         list = list.filter(
@@ -70,7 +98,6 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
         );
       }
 
-      // Tab filter
       if (tab === "unread") list = list.filter((d) => d.unreadCount > 0);
       else if (tab === "groups") list = list.filter((d) => d.type === "chat");
       else if (tab === "channels") list = list.filter((d) => d.type === "channel");
@@ -78,6 +105,12 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
 
       return list;
     }, [allDialogs, search, tab]);
+
+    // Global results that aren't already in our dialog list
+    const newGlobalResults = useMemo(() => {
+      if (!globalResults) return [];
+      return globalResults.filter((d) => !dialogIdSet.has(d.id));
+    }, [globalResults, dialogIdSet]);
 
     const pinned = filtered.filter((d) => d.isPinned);
     const regular = filtered.filter((d) => !d.isPinned);
@@ -90,6 +123,8 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
       bots: allDialogs.filter((d) => d.isBot && d.unreadCount > 0).reduce((s, d) => s + d.unreadCount, 0),
     }), [allDialogs]);
 
+    const showGlobalSection = debouncedSearch.length >= 2;
+
     return (
       <div className="flex h-full flex-col">
         {/* Search */}
@@ -98,47 +133,52 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchRef}
-              placeholder="Search chats"
+              placeholder="Search chats or find anyone…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
+            {(isSearching || (search.trim() !== debouncedSearch && search.trim().length >= 2)) && (
+              <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
           </div>
         </div>
 
-        {/* Filter tabs */}
-        <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1.5 scrollbar-none">
-          {TABS.map((t) => {
-            const count = unreadCounts[t.key];
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                  tab === t.key
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {t.label}
-                {count > 0 && tab !== t.key && (
-                  <span
-                    className={cn(
-                      "ml-0.5 min-w-[16px] rounded-full px-1 text-[10px] leading-4",
-                      tab === t.key
-                        ? "bg-primary-foreground/20 text-primary-foreground"
-                        : "bg-primary/15 text-primary",
-                    )}
-                  >
-                    {count > 99 ? "99+" : count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Filter tabs — hide while searching globally */}
+        {!showGlobalSection && (
+          <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1.5 scrollbar-none">
+            {TABS.map((t) => {
+              const count = unreadCounts[t.key];
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    tab === t.key
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {t.label}
+                  {count > 0 && tab !== t.key && (
+                    <span
+                      className={cn(
+                        "ml-0.5 min-w-[16px] rounded-full px-1 text-[10px] leading-4",
+                        tab === t.key
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-primary/15 text-primary",
+                      )}
+                    >
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <ScrollArea className="flex-1">
           {isLoading && (
@@ -152,13 +192,14 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
               {(error as Error).message}
             </div>
           )}
-          {!isLoading && filtered.length === 0 && !error && (
+
+          {/* ---- Local results ---- */}
+          {!isLoading && filtered.length === 0 && !showGlobalSection && !error && (
             <div className="py-12 text-center text-sm text-muted-foreground">
               No chats found
             </div>
           )}
 
-          {/* Pinned section */}
           {pinned.length > 0 && (
             <>
               <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
@@ -182,7 +223,6 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
             </>
           )}
 
-          {/* Regular chats */}
           <ul className="divide-y">
             {regular.map((d) => (
               <ChatRow
@@ -193,6 +233,48 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
               />
             ))}
           </ul>
+
+          {/* ---- Global Telegram search results ---- */}
+          {showGlobalSection && (
+            <>
+              {/* Header row */}
+              <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                <Globe className="h-3 w-3" />
+                Telegram search
+              </div>
+
+              {searchError && (
+                <div className="mx-3 my-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                  Search failed: {(searchError as Error).message}
+                </div>
+              )}
+
+              {isSearching && (
+                <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Searching…
+                </div>
+              )}
+
+              {!isSearching && !searchError && newGlobalResults.length === 0 && (
+                <div className="py-6 text-center text-xs text-muted-foreground">
+                  No results found on Telegram
+                </div>
+              )}
+
+              <ul className="divide-y">
+                {newGlobalResults.map((d) => (
+                  <ChatRow
+                    key={`global-${d.type}-${d.id}`}
+                    d={d}
+                    selected={d.id === selectedId}
+                    onSelect={onSelect}
+                    isGlobal
+                  />
+                ))}
+              </ul>
+            </>
+          )}
         </ScrollArea>
       </div>
     );
@@ -203,10 +285,12 @@ function ChatRow({
   d,
   selected,
   onSelect,
+  isGlobal = false,
 }: {
   d: Dialog;
   selected: boolean;
   onSelect: (d: Dialog) => void;
+  isGlobal?: boolean;
 }) {
   return (
     <li>
@@ -214,7 +298,6 @@ function ChatRow({
         type="button"
         onClick={() => onSelect(d)}
         className={cn(
-          // min-h-[64px] ensures a generous touch target on mobile
           "flex min-h-[64px] w-full items-center gap-3 px-3 py-3 text-left transition-colors active:bg-muted/70 hover:bg-muted/50",
           selected && "bg-primary/10 hover:bg-primary/15",
         )}
@@ -251,12 +334,19 @@ function ChatRow({
           </div>
           <div className="mt-0.5 flex items-center gap-2">
             <p className="truncate text-xs text-muted-foreground">
-              {d.lastMessage?.out && (
-                <span className="text-foreground/60">You: </span>
-              )}
-              {d.lastMessage?.text || (
+              {d.username ? (
+                <span className="text-primary/70">@{d.username}</span>
+              ) : d.lastMessage?.out ? (
+                <>
+                  <span className="text-foreground/60">You: </span>
+                  {d.lastMessage.text}
+                </>
+              ) : d.lastMessage?.text ? (
+                d.lastMessage.text
+              ) : (
                 <span className="italic text-muted-foreground/60">
                   {d.type === "channel" ? "Channel" : d.type === "chat" ? "Group" : d.isBot ? "Bot" : "User"}
+                  {isGlobal && " · not in your chats"}
                 </span>
               )}
             </p>

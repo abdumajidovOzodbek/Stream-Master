@@ -202,6 +202,11 @@ export const api = {
       maxId != null ? { maxId } : {},
     ),
 
+  searchContacts: (q: string, limit = 20) =>
+    get<Dialog[]>(
+      `/api/contacts/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+
   authStatus: () =>
     get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
 
