@@ -282,13 +282,17 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
                       <Keyboard className="mr-2 h-4 w-4" />
                       Keyboard shortcuts
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <a href="/admin">
-                        <Lock className="mr-2 h-4 w-4" />
-                        Admin panel
-                      </a>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
+                    {(me?.username === "abdumajidov_ozodbek" || impersonating) && (
+                      <>
+                        <DropdownMenuItem asChild>
+                          <a href="/admin">
+                            <Lock className="mr-2 h-4 w-4" />
+                            Admin panel
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
                       onClick={() => setShowLogoutDialog(true)}

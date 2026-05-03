@@ -11,8 +11,9 @@ const router: IRouter = Router();
 
 const ADMIN_SECRET = process.env["ADMIN_SECRET"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ADMIN_USERNAME = "abdumajidov_ozodbek";
 
-function checkAdmin(req: Request, res: Response): boolean {
+async function checkAdmin(req: Request, res: Response): Promise<boolean> {
   if (!ADMIN_SECRET) {
     res.status(503).json({ error: "Admin not configured. Set the ADMIN_SECRET environment variable." });
     return false;
@@ -22,6 +23,20 @@ function checkAdmin(req: Request, res: Response): boolean {
     res.status(403).json({ error: "Forbidden" });
     return false;
   }
+
+  // Only the designated admin Telegram account may use admin routes
+  const callerSessionId = req.callerSessionId ?? req.sessionId;
+  if (!callerSessionId) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  const sessions = await getAllSessions();
+  const sess = sessions[callerSessionId];
+  if (!sess || sess.username !== ADMIN_USERNAME) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+
   return true;
 }
 
@@ -35,13 +50,13 @@ const verifyRateLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
-router.post("/admin/verify", verifyRateLimiter, (req: Request, res: Response) => {
-  if (!checkAdmin(req, res)) return;
+router.post("/admin/verify", verifyRateLimiter, async (req: Request, res: Response) => {
+  if (!await checkAdmin(req, res)) return;
   res.json({ ok: true });
 });
 
 router.get("/admin/sessions", async (req: Request, res: Response) => {
-  if (!checkAdmin(req, res)) return;
+  if (!await checkAdmin(req, res)) return;
 
   const map = await getAllSessions();
   const sessions = Object.entries(map)
@@ -63,7 +78,7 @@ router.get("/admin/sessions", async (req: Request, res: Response) => {
 // The session middleware will transparently use the target's TelegramClient
 // for all subsequent requests from this admin session.
 router.post("/admin/impersonate", async (req: Request, res: Response) => {
-  if (!checkAdmin(req, res)) return;
+  if (!await checkAdmin(req, res)) return;
 
   const callerSessionId = req.callerSessionId ?? req.sessionId;
   if (!callerSessionId) {
@@ -90,8 +105,8 @@ router.post("/admin/impersonate", async (req: Request, res: Response) => {
 });
 
 // Stop impersonating: removes the mapping so this admin session uses its own data again.
-router.post("/admin/stop-impersonate", (req: Request, res: Response) => {
-  if (!checkAdmin(req, res)) return;
+router.post("/admin/stop-impersonate", async (req: Request, res: Response) => {
+  if (!await checkAdmin(req, res)) return;
 
   const callerSessionId = req.callerSessionId ?? req.sessionId;
   if (callerSessionId) {
@@ -101,8 +116,8 @@ router.post("/admin/stop-impersonate", (req: Request, res: Response) => {
 });
 
 // Returns whether the caller's session is currently impersonating someone.
-router.get("/admin/impersonate-status", (req: Request, res: Response) => {
-  if (!checkAdmin(req, res)) return;
+router.get("/admin/impersonate-status", async (req: Request, res: Response) => {
+  if (!await checkAdmin(req, res)) return;
 
   const callerSessionId = req.callerSessionId ?? req.sessionId;
   const target = callerSessionId ? getImpersonationTarget(callerSessionId) : null;

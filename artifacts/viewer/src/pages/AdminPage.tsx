@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { adminApi, type AdminSession } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { api, adminApi, type AdminSession } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -107,7 +108,23 @@ function SessionCard({
   );
 }
 
+const ADMIN_USERNAME = "abdumajidov_ozodbek";
+
 export default function AdminPage() {
+  const { data: me, isLoading: meLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: api.me,
+    staleTime: Infinity,
+    retry: 0,
+  });
+
+  useEffect(() => {
+    if (meLoading) return;
+    if (!me || me.username !== ADMIN_USERNAME) {
+      window.location.replace("/");
+    }
+  }, [me, meLoading]);
+
   const [secret, setSecret] = useState(() => sessionStorage.getItem(ADMIN_SECRET_KEY) ?? "");
   const [verified, setVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -179,6 +196,14 @@ export default function AdminPage() {
       setViewingAs(null);
       window.location.href = "/admin";
     }
+  }
+
+  if (meLoading || !me || me.username !== ADMIN_USERNAME) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (
