@@ -784,7 +784,7 @@ function MessageBubble({
         {/* Bubble — max-w lives on the outer div so it correctly constrains against the row */}
         <div
           className={cn(
-            "relative max-w-[88%] sm:max-w-[72%]",
+            "relative min-w-0 max-w-[88%] overflow-hidden sm:max-w-[72%]",
             isChannel && !out && "sm:max-w-[82%]",
           )}
         >
@@ -850,7 +850,7 @@ function MessageBubble({
                 The spacer reserves bottom-right space so the absolute timestamp
                 never overlaps real text (same trick Telegram Web uses). */}
             {msg.text && (
-              <div className="whitespace-pre-wrap break-words leading-[1.45]">
+              <div className="whitespace-pre-wrap leading-[1.45] [overflow-wrap:anywhere]">
                 {msg.text}
                 {useInlineFooter && (
                   <span
@@ -1190,7 +1190,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
         )}
 
         {/* Messages */}
-        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-y-auto chat-bg">
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto chat-bg">
           {/* Unread jump button */}
           {dialog.unreadCount > 0 && allMessages.length > 0 && (
             <button
