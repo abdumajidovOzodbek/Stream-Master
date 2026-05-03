@@ -19,6 +19,7 @@ import { api, type Dialog } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { MessageSquare, Loader2, LogOut, Moon, Sun } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const queryClient = new QueryClient();
 
@@ -33,9 +34,9 @@ function ThemeToggle() {
       data-testid="button-theme-toggle"
     >
       {theme === "dark" ? (
-        <Sun className="h-4 w-4" />
+        <Sun className="h-5 w-5" />
       ) : (
-        <Moon className="h-4 w-4" />
+        <Moon className="h-5 w-5" />
       )}
     </Button>
   );
@@ -61,9 +62,9 @@ function LogoutButton() {
       disabled={m.isPending}
     >
       {m.isPending ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="h-5 w-5 animate-spin" />
       ) : (
-        <LogOut className="h-4 w-4" />
+        <LogOut className="h-5 w-5" />
       )}
     </Button>
   );
@@ -89,20 +90,17 @@ function ChatApp() {
   const dialogs = dialogsData?.dialogs ?? [];
   const totalUnread = dialogs.reduce((s, d) => s + d.unreadCount, 0);
 
-  // Desktop notifications
   useDesktopNotifications(dialogs, setSelected);
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts (desktop only)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Ctrl+K → focus chat search
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
         return;
       }
-      // Escape → deselect chat (only when not in a text field)
       if (
         e.key === "Escape" &&
         !(e.target instanceof HTMLInputElement) &&
@@ -120,11 +118,26 @@ function ChatApp() {
     me?.username ||
     "Me";
 
+  // On mobile: show sidebar when no chat selected, show chat when selected
+  // On desktop: always show both columns
+  const showSidebar = !selected; // mobile gate; desktop ignores via CSS
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <aside className="flex w-[340px] shrink-0 flex-col border-r bg-card">
-        {/* Sidebar header */}
-        <div className="flex items-center gap-2 border-b px-3 py-3">
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
+
+      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      <aside
+        className={cn(
+          // Mobile: full-width, hidden when a chat is open
+          "flex w-full flex-col border-r bg-card",
+          // Desktop: fixed 340 px column, always visible
+          "md:flex md:w-[340px] md:shrink-0",
+          // Mobile visibility toggle
+          selected ? "hidden md:flex" : "flex",
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 border-b px-3 py-2.5">
           {me ? (
             <>
               <ChatAvatar
@@ -161,7 +174,7 @@ function ChatApp() {
           )}
         </div>
 
-        {/* Chat list with search ref forwarded */}
+        {/* Chat list */}
         <div className="min-h-0 flex-1">
           <ChatList
             ref={searchRef}
@@ -171,20 +184,33 @@ function ChatApp() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      {/* ── Main content ─────────────────────────────────────────── */}
+      <main
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          // Mobile: hidden when no chat selected; shown full-screen when selected
+          selected ? "flex" : "hidden md:flex",
+        )}
+      >
         {selected ? (
           <MessageView
             key={`${selected.type}-${selected.id}`}
             dialog={selected}
+            onBack={() => setSelected(null)}
           />
         ) : (
+          // Desktop empty state
           <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted/30 text-muted-foreground">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-card shadow-sm">
               <MessageSquare className="h-7 w-7" />
             </div>
             <div className="text-sm">Select a chat to view messages</div>
             <div className="text-xs text-muted-foreground/60">
-              Press <kbd className="rounded border px-1 py-0.5 text-[10px] font-mono">Ctrl+K</kbd> to search chats
+              Press{" "}
+              <kbd className="rounded border px-1 py-0.5 font-mono text-[10px]">
+                Ctrl+K
+              </kbd>{" "}
+              to search chats
             </div>
           </div>
         )}
@@ -203,7 +229,7 @@ function Home() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-muted/30">
+      <div className="flex h-[100dvh] w-screen items-center justify-center bg-muted/30">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );

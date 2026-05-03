@@ -214,7 +214,8 @@ function ChatRow({
         type="button"
         onClick={() => onSelect(d)}
         className={cn(
-          "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/50",
+          // min-h-[64px] ensures a generous touch target on mobile
+          "flex min-h-[64px] w-full items-center gap-3 px-3 py-3 text-left transition-colors active:bg-muted/70 hover:bg-muted/50",
           selected && "bg-primary/10 hover:bg-primary/15",
         )}
       >
@@ -223,18 +224,18 @@ function ChatRow({
             peerId={d.id}
             title={d.title}
             hasPhoto={d.hasPhoto}
-            size={48}
+            size={50}
           />
           {d.presence?.kind === "online" && (
             <span
-              className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-emerald-500"
+              className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-500"
               data-testid={`online-dot-${d.id}`}
             />
           )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{d.title}</span>
+            <span className="truncate text-sm font-medium leading-snug">{d.title}</span>
             {d.isVerified && (
               <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
             )}
@@ -244,7 +245,7 @@ function ChatRow({
             {d.isPinned && (
               <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
             )}
-            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+            <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
               {d.lastMessage ? formatRelative(d.lastMessage.date) : ""}
             </span>
           </div>
@@ -260,7 +261,7 @@ function ChatRow({
               )}
             </p>
             {d.unreadCount > 0 && (
-              <Badge className="ml-auto h-5 min-w-5 shrink-0 rounded-full px-1.5 text-[10px]">
+              <Badge className="ml-auto h-5 min-w-[20px] shrink-0 rounded-full px-1.5 text-[10px]">
                 {d.unreadCount > 99 ? "99+" : d.unreadCount}
               </Badge>
             )}
