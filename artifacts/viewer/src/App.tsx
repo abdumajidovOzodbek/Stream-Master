@@ -60,15 +60,8 @@ function ThemeToggle() {
   );
 }
 
-function isImpersonatingViaCookie(): boolean {
-  return document.cookie.split(";").some((p) => p.trim().startsWith("tg_impersonate=") && p.includes("=") && p.split("=")[1]?.trim().length > 0);
-}
-
-function ImpersonationBanner() {
-  const [impersonating, setImpersonating] = useState(() => isImpersonatingViaCookie());
+function ImpersonationBanner({ onReturn }: { onReturn: () => void }) {
   const [stopping, setStopping] = useState(false);
-
-  if (!impersonating) return null;
 
   async function handleReturn() {
     setStopping(true);
@@ -78,9 +71,8 @@ function ImpersonationBanner() {
     } catch {
       // best-effort
     } finally {
-      document.cookie = "tg_impersonate=; Path=/; Max-Age=0; SameSite=Lax";
-      setImpersonating(false);
-      window.location.href = "/admin";
+      setStopping(false);
+      onReturn();
     }
   }
 
@@ -113,7 +105,7 @@ function ImpersonationBanner() {
   );
 }
 
-function ChatApp() {
+function ChatApp({ impersonating }: { impersonating: boolean }) {
   const [selected, setSelected] = useState<Dialog | null>(null);
   const [stealthMode, setStealthMode] = useState(() => localStorage.getItem("stealth-mode") === "1");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -195,7 +187,7 @@ function ChatApp() {
 
   return (
     <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground">
-      <ImpersonationBanner />
+      {impersonating && <ImpersonationBanner onReturn={() => { window.location.href = "/admin"; }} />}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ── Sidebar ─────────────────────────────────────────────── */}
@@ -328,7 +320,7 @@ function Home() {
   }
 
   if (!data?.authenticated) return <Login />;
-  return <ChatApp />;
+  return <ChatApp impersonating={data.impersonating ?? false} />;
 }
 
 function Router() {

@@ -6,6 +6,7 @@ import {
   logoutSession,
 } from "../telegram/clientManager";
 import { getMe } from "../telegram/chats";
+import { isImpersonating } from "../telegram/impersonationStore";
 
 const router: IRouter = Router();
 
@@ -49,7 +50,8 @@ router.get("/auth/status", async (req: Request, res: Response) => {
       return;
     }
     const me = await getMe(client);
-    res.json({ authenticated: true, me });
+    const callerSessionId = req.callerSessionId ?? req.sessionId ?? "";
+    res.json({ authenticated: true, me, impersonating: isImpersonating(callerSessionId) });
   } catch (err) {
     req.log.warn({ err }, "auth/status failed");
     res.json({ authenticated: false });

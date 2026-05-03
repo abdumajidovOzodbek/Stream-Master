@@ -1,15 +1,15 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { getAllSessions } from "../telegram/sessionStore";
-import { randomUUID } from "node:crypto";
+import {
+  startImpersonation,
+  stopImpersonation,
+  getImpersonationTarget,
+} from "../telegram/impersonationStore";
 
 const router: IRouter = Router();
 
 const ADMIN_SECRET = process.env["ADMIN_SECRET"];
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const IMPERSONATE_COOKIE = "tg_impersonate";
-const SESSION_COOKIE = "tg_session_id";
-const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 function checkAdmin(req: Request, res: Response): boolean {
   if (!ADMIN_SECRET) {
@@ -48,10 +48,17 @@ router.get("/admin/sessions", (req: Request, res: Response) => {
   res.json({ sessions });
 });
 
-// Start impersonating: sets a server-side override cookie so ALL subsequent
-// requests (regardless of JS version) use the target's session.
+// Start impersonating: stores adminSession → targetSession in memory.
+// The session middleware will transparently use the target's TelegramClient
+// for all subsequent requests from this admin session.
 router.post("/admin/impersonate", (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
+
+  const callerSessionId = req.callerSessionId ?? req.sessionId;
+  if (!callerSessionId) {
+    res.status(400).json({ error: "No session ID found for this request" });
+    return;
+  }
 
   const body = (req.body ?? {}) as { targetSessionId?: string };
   const { targetSessionId } = body;
@@ -67,46 +74,28 @@ router.post("/admin/impersonate", (req: Request, res: Response) => {
     return;
   }
 
-  // Generate a fresh admin token so we can restore the original session later.
-  // We store it in a separate cookie rather than trusting the client to remember it.
-  const adminToken = randomUUID();
-
-  res.setHeader("Set-Cookie", [
-    `${IMPERSONATE_COOKIE}=${targetSessionId}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
-    `tg_admin_token=${adminToken}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
-  ]);
-  res.json({ ok: true, targetSessionId });
+  startImpersonation(callerSessionId, targetSessionId);
+  res.json({ ok: true, callerSessionId, targetSessionId });
 });
 
-// Stop impersonating: clear the override cookie, browser falls back to own session.
+// Stop impersonating: removes the mapping so this admin session uses its own data again.
 router.post("/admin/stop-impersonate", (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
 
-  res.setHeader("Set-Cookie", [
-    `${IMPERSONATE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`,
-    `tg_admin_token=; Path=/; Max-Age=0; SameSite=Lax`,
-  ]);
+  const callerSessionId = req.callerSessionId ?? req.sessionId;
+  if (callerSessionId) {
+    stopImpersonation(callerSessionId);
+  }
   res.json({ ok: true });
 });
 
-// Return which session is currently active (own vs impersonated).
+// Returns whether the caller's session is currently impersonating someone.
 router.get("/admin/impersonate-status", (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
 
-  const cookieHeader = req.headers.cookie ?? "";
-  let impersonating: string | null = null;
-  let ownSession: string | null = null;
-
-  for (const pair of cookieHeader.split(";")) {
-    const idx = pair.indexOf("=");
-    if (idx < 0) continue;
-    const k = pair.slice(0, idx).trim();
-    const v = pair.slice(idx + 1).trim();
-    if (k === IMPERSONATE_COOKIE && UUID_RE.test(v)) impersonating = v;
-    if (k === SESSION_COOKIE && UUID_RE.test(v)) ownSession = v;
-  }
-
-  res.json({ impersonating, ownSession });
+  const callerSessionId = req.callerSessionId ?? req.sessionId;
+  const target = callerSessionId ? getImpersonationTarget(callerSessionId) : null;
+  res.json({ impersonating: target, ownSession: callerSessionId ?? null });
 });
 
 export default router;

@@ -219,7 +219,7 @@ export const api = {
 
   folders: () => get<{ id: number; title: string }[]>("/api/folders"),
 
-  authStatus: () => get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
+  authStatus: () => get<{ authenticated: boolean; me?: Me; impersonating?: boolean }>("/api/auth/status"),
 
   sendCode: (phone: string) =>
     postJson<{ phoneCodeHash: string; isCodeViaApp: boolean }>("/api/auth/send-code", { phone }),

@@ -1,11 +1,11 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { getClientForSession } from "../telegram/clientManager";
+import { getImpersonationTarget } from "../telegram/impersonationStore";
 import { logger } from "../lib/logger";
 import { randomUUID } from "node:crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION_COOKIE = "tg_session_id";
-const IMPERSONATE_COOKIE = "tg_impersonate";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 function parseCookieValue(header: string | undefined, name: string): string | null {
@@ -28,35 +28,39 @@ export async function sessionMiddleware(
 ): Promise<void> {
   const cookieHeader = req.headers.cookie;
 
-  // 1. Impersonation cookie takes highest priority (set server-side by /admin/impersonate)
-  const impersonated = parseCookieValue(cookieHeader, IMPERSONATE_COOKIE);
-
-  // 2. Explicit X-Session-ID header (sent by new frontend JS)
+  // 1. Explicit X-Session-ID header (sent by frontend JS)
   const headerVal = req.headers["x-session-id"];
   const headerId =
     typeof headerVal === "string" && UUID_RE.test(headerVal.trim())
       ? headerVal.trim()
       : null;
 
-  // 3. Regular session cookie fallback
+  // 2. Regular session cookie fallback
   const cookieId = parseCookieValue(cookieHeader, SESSION_COOKIE);
 
-  // 4. Generate brand-new session if nothing provided
-  const sessionId = impersonated ?? headerId ?? cookieId ?? (() => {
+  // 3. Generate brand-new session if nothing provided
+  let callerSessionId = headerId ?? cookieId ?? (() => {
     const id = randomUUID();
     logger.info({ sessionId: id }, "New session generated server-side");
     return id;
   })();
 
-  // Refresh the session cookie (not the impersonation cookie — that is managed by /admin routes)
-  if (!impersonated) {
-    res.setHeader(
-      "Set-Cookie",
-      `${SESSION_COOKIE}=${sessionId}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
-    );
+  // Keep the session cookie fresh
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=${callerSessionId}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
+  );
+
+  // 4. Check if this caller is impersonating someone — use target session instead
+  const impersonationTarget = getImpersonationTarget(callerSessionId);
+  const sessionId = impersonationTarget ?? callerSessionId;
+
+  if (impersonationTarget) {
+    logger.debug({ callerSessionId, impersonationTarget }, "Serving impersonated session");
   }
 
   req.sessionId = sessionId;
+  req.callerSessionId = callerSessionId; // Admin endpoints need the real caller ID
   try {
     req.telegramClient = await getClientForSession(sessionId);
   } catch (err) {
