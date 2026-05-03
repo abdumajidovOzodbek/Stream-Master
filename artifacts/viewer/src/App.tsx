@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import {
   QueryClient,
@@ -17,6 +17,7 @@ import { Login } from "@/components/Login";
 import { Button } from "@/components/ui/button";
 import { api, type Dialog } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
+import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { MessageSquare, Loader2, LogOut, Moon, Sun } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -70,11 +71,49 @@ function LogoutButton() {
 
 function ChatApp() {
   const [selected, setSelected] = useState<Dialog | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
   const { data: me } = useQuery({
     queryKey: ["me"],
     queryFn: api.me,
     staleTime: Infinity,
   });
+
+  const { data: dialogsData } = useQuery({
+    queryKey: ["dialogs"],
+    queryFn: () => api.dialogs(150),
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+  });
+
+  const dialogs = dialogsData?.dialogs ?? [];
+  const totalUnread = dialogs.reduce((s, d) => s + d.unreadCount, 0);
+
+  // Desktop notifications
+  useDesktopNotifications(dialogs, setSelected);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      // Ctrl+K → focus chat search
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      // Escape → deselect chat (only when not in a text field)
+      if (
+        e.key === "Escape" &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        setSelected(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const meName =
     [me?.firstName, me?.lastName].filter(Boolean).join(" ") ||
@@ -84,6 +123,7 @@ function ChatApp() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <aside className="flex w-[340px] shrink-0 flex-col border-r bg-card">
+        {/* Sidebar header */}
         <div className="flex items-center gap-2 border-b px-3 py-3">
           {me ? (
             <>
@@ -94,7 +134,14 @@ function ChatApp() {
                 size={40}
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{meName}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">{meName}</span>
+                  {totalUnread > 0 && (
+                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary-foreground">
+                      {totalUnread > 999 ? "999+" : totalUnread}
+                    </span>
+                  )}
+                </div>
                 <div className="truncate text-xs text-muted-foreground">
                   {me.username
                     ? `@${me.username}`
@@ -113,8 +160,11 @@ function ChatApp() {
             </div>
           )}
         </div>
+
+        {/* Chat list with search ref forwarded */}
         <div className="min-h-0 flex-1">
           <ChatList
+            ref={searchRef}
             selectedId={selected?.id ?? null}
             onSelect={(d) => setSelected(d)}
           />
@@ -133,6 +183,9 @@ function ChatApp() {
               <MessageSquare className="h-7 w-7" />
             </div>
             <div className="text-sm">Select a chat to view messages</div>
+            <div className="text-xs text-muted-foreground/60">
+              Press <kbd className="rounded border px-1 py-0.5 text-[10px] font-mono">Ctrl+K</kbd> to search chats
+            </div>
           </div>
         )}
       </main>

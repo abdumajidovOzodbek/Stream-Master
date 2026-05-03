@@ -1,11 +1,27 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Dialog, type Message, type MessageMedia } from "@/lib/api";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { api, type Dialog, type Message, type MessageMedia, type Reaction } from "@/lib/api";
 import { ChatAvatar, senderTextColor } from "./Avatar";
 import { Composer } from "./Composer";
 import { PhotoLightbox } from "./PhotoLightbox";
+import { MessageContextMenu } from "./MessageContextMenu";
+import { UserProfileCard } from "./UserProfileCard";
+import { SharedMediaPanel } from "./SharedMediaPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Loader2,
   ExternalLink,
@@ -18,6 +34,7 @@ import {
   ImageOff,
   Image as ImageIcon,
   Play,
+  Pause,
   Sticker,
   Reply,
   CornerUpLeft,
@@ -25,21 +42,26 @@ import {
   Pencil,
   Check,
   CheckCheck,
+  Search,
+  X,
+  Images,
+  Smile,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPresence, summarizeReply } from "@/lib/format";
 
 const PAGE_SIZE = 50;
+const COMMON_REACTIONS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "😢"];
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
 
 function formatBytes(b: number | null): string {
   if (!b) return "";
   const u = ["B", "KB", "MB", "GB"];
-  let v = b,
-    i = 0;
-  while (v >= 1024 && i < u.length - 1) {
-    v /= 1024;
-    i++;
-  }
+  let v = b, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v < 10 ? 1 : 0)} ${u[i]}`;
 }
 
@@ -51,10 +73,7 @@ function formatDuration(s: number | null): string {
 }
 
 function formatTime(t: number): string {
-  return new Date(t * 1000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatDateLabel(t: number): string {
@@ -63,27 +82,183 @@ function formatDateLabel(t: number): string {
   const yesterday = new Date(Date.now() - 86400_000);
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 }
 
+// ---------------------------------------------------------------------------
+// Voice waveform
+// ---------------------------------------------------------------------------
+
+function VoiceWaveform({ url, duration }: { url: string; duration: number | null }) {
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [bars, setBars] = useState<number[]>([]);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const N = 48;
+
+  async function load() {
+    setLoadState("loading");
+    try {
+      const res = await fetch(url);
+      const ab = await res.arrayBuffer();
+      const ctx = new AudioContext();
+      const audioBuf = await ctx.decodeAudioData(ab);
+      const data = audioBuf.getChannelData(0);
+      const step = Math.ceil(data.length / N);
+      const raw: number[] = [];
+      for (let i = 0; i < N; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += Math.abs(data[i * step + j] ?? 0);
+        raw.push(sum / step);
+      }
+      const max = Math.max(...raw, 0.001);
+      setBars(raw.map((b) => b / max));
+      setLoadState("ready");
+      await ctx.close();
+    } catch {
+      setLoadState("error");
+    }
+  }
+
+  function tick() {
+    const a = audioRef.current;
+    if (a && a.duration) setProgress(a.currentTime / a.duration);
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function togglePlay() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) {
+      a.pause();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      setPlaying(false);
+    } else {
+      void a.play();
+      rafRef.current = requestAnimationFrame(tick);
+      setPlaying(true);
+    }
+  }
+
+  function seek(e: React.MouseEvent<SVGSVGElement>) {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    a.currentTime = pct * a.duration;
+    setProgress(pct);
+  }
+
+  useEffect(() => {
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
+
+  if (loadState === "idle") {
+    return (
+      <button
+        type="button"
+        onClick={() => void load()}
+        className="flex items-center gap-3 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/40 px-4 py-2.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+      >
+        <Mic className="h-4 w-4 shrink-0" />
+        <div className="flex flex-col items-start">
+          <span className="text-xs font-medium">Voice message</span>
+          {duration && <span className="text-[10px] opacity-70">{formatDuration(duration)}</span>}
+        </div>
+        <Play className="ml-2 h-4 w-4 fill-current" />
+      </button>
+    );
+  }
+
+  if (loadState === "loading") {
+    return (
+      <div className="flex items-center gap-2 py-1 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span className="text-xs">Decoding audio…</span>
+      </div>
+    );
+  }
+
+  if (loadState === "error") {
+    return (
+      <div className="flex items-center gap-2 py-1 text-destructive text-xs">
+        <Mic className="h-4 w-4" /> Could not load voice message
+      </div>
+    );
+  }
+
+  const W = 192;
+  const H = 32;
+
+  return (
+    <div className="flex items-center gap-2">
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="auto"
+        onEnded={() => {
+          setPlaying(false);
+          setProgress(0);
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        }}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={togglePlay}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90"
+      >
+        {playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+      </button>
+      <div className="flex flex-col gap-0.5">
+        <svg
+          width={W}
+          height={H}
+          className="cursor-pointer"
+          onClick={seek}
+        >
+          {bars.map((amp, i) => {
+            const barW = 2;
+            const gap = (W - N * barW) / (N - 1);
+            const x = i * (barW + gap);
+            const barH = Math.max(2, amp * H);
+            const y = (H - barH) / 2;
+            const filled = i / N <= progress;
+            return (
+              <rect
+                key={i}
+                x={x}
+                y={y}
+                width={barW}
+                height={barH}
+                rx={1}
+                className={filled ? "fill-primary" : "fill-muted-foreground/30"}
+              />
+            );
+          })}
+        </svg>
+        <span className="text-[10px] text-muted-foreground">
+          {formatDuration(Math.round((audioRef.current?.currentTime ?? 0))) || formatDuration(duration)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Photo
+// ---------------------------------------------------------------------------
+
 function PhotoBlock({
-  url,
-  width,
-  height,
-  onOpenLightbox,
+  url, width, height, onOpenLightbox,
 }: {
-  url: string;
-  width: number | null;
-  height: number | null;
+  url: string; width: number | null; height: number | null;
   onOpenLightbox: (url: string) => void;
 }) {
   const [load, setLoad] = useState(false);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
-
   const ratio = width && height ? width / height : 4 / 3;
   const w = 280;
   const h = Math.round(w / ratio);
@@ -99,9 +274,7 @@ function PhotoBlock({
         <ImageIcon className="h-8 w-8" />
         <span className="text-xs font-medium">Load photo</span>
         {width && height && (
-          <span className="text-[10px] opacity-70">
-            {width} × {height}
-          </span>
+          <span className="text-[10px] opacity-70">{width} × {height}</span>
         )}
       </button>
     );
@@ -110,25 +283,15 @@ function PhotoBlock({
   return (
     <div className="relative overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
       {state === "loading" && (
-        <div
-          className="flex items-center justify-center"
-          style={{ width: w, height: h }}
-        >
+        <div className="flex items-center justify-center" style={{ width: w, height: h }}>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
       {state === "error" && (
-        <div
-          className="flex flex-col items-center justify-center gap-2 text-muted-foreground"
-          style={{ width: w, height: h }}
-        >
+        <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground" style={{ width: w, height: h }}>
           <ImageOff className="h-6 w-6" />
           <span className="text-[11px]">Could not load image</span>
-          <button
-            type="button"
-            onClick={() => setState("loading")}
-            className="text-[11px] text-primary underline"
-          >
+          <button type="button" onClick={() => setState("loading")} className="text-[11px] text-primary underline">
             Retry
           </button>
         </div>
@@ -148,11 +311,11 @@ function PhotoBlock({
   );
 }
 
-function VideoBlock({
-  media,
-}: {
-  media: Extract<MessageMedia, { kind: "video" }>;
-}) {
+// ---------------------------------------------------------------------------
+// Video
+// ---------------------------------------------------------------------------
+
+function VideoBlock({ media }: { media: Extract<MessageMedia, { kind: "video" }> }) {
   const [load, setLoad] = useState(false);
   const ratio = media.width && media.height ? media.width / media.height : 16 / 9;
   const w = 320;
@@ -184,11 +347,7 @@ function VideoBlock({
               {media.mimeType.replace("video/", "")}
             </Badge>
           )}
-          {media.width && media.height && (
-            <span>
-              {media.width} × {media.height}
-            </span>
-          )}
+          {media.width && media.height && <span>{media.width} × {media.height}</span>}
         </div>
       </div>
     );
@@ -196,13 +355,7 @@ function VideoBlock({
 
   return (
     <div className="space-y-2">
-      <video
-        controls
-        autoPlay
-        preload="metadata"
-        src={media.url}
-        className="max-h-96 w-full max-w-md rounded-lg bg-black"
-      />
+      <video controls autoPlay preload="metadata" src={media.url} className="max-h-96 w-full max-w-md rounded-lg bg-black" />
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         {media.duration && <span>{formatDuration(media.duration)}</span>}
         {media.size && <span>· {formatBytes(media.size)}</span>}
@@ -215,6 +368,44 @@ function VideoBlock({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Audio
+// ---------------------------------------------------------------------------
+
+function AudioBlock({ media }: { media: Extract<MessageMedia, { kind: "audio" | "voice" }>; out: boolean }) {
+  if (media.kind === "voice") {
+    return <VoiceWaveform url={media.url} duration={media.duration} />;
+  }
+  const [load, setLoad] = useState(false);
+  if (!load) {
+    return (
+      <button
+        type="button"
+        onClick={() => setLoad(true)}
+        className="flex items-center gap-3 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/40 px-3 py-2 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+      >
+        <Play className="h-4 w-4 fill-current" />
+        <Music className="h-4 w-4" />
+        <span className="text-xs">
+          Audio{media.duration ? ` · ${formatDuration(media.duration)}` : ""}
+          {media.size ? ` · ${formatBytes(media.size)}` : ""}
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-muted p-3">
+      <Music className="h-5 w-5 shrink-0" />
+      <audio controls autoPlay src={media.url} className="h-8 max-w-[260px]" />
+      <span className="text-[11px] text-muted-foreground">{formatDuration(media.duration)}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sticker
+// ---------------------------------------------------------------------------
 
 function StickerBlock({ url }: { url: string }) {
   const [load, setLoad] = useState(false);
@@ -233,68 +424,23 @@ function StickerBlock({ url }: { url: string }) {
   return <img src={url} alt="Sticker" className="h-32 w-32 object-contain" />;
 }
 
-function AudioBlock({
-  media,
-}: {
-  media: Extract<MessageMedia, { kind: "audio" | "voice" }>;
-  out: boolean;
-}) {
-  const [load, setLoad] = useState(false);
-  const Icon = media.kind === "voice" ? Mic : Music;
-  if (!load) {
-    return (
-      <button
-        type="button"
-        onClick={() => setLoad(true)}
-        className="flex items-center gap-3 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/40 px-3 py-2 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-      >
-        <Play className="h-4 w-4 fill-current" />
-        <Icon className="h-4 w-4" />
-        <span className="text-xs">
-          {media.kind === "voice" ? "Voice message" : "Audio"}
-          {media.duration ? ` · ${formatDuration(media.duration)}` : ""}
-          {media.size ? ` · ${formatBytes(media.size)}` : ""}
-        </span>
-      </button>
-    );
-  }
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-muted p-3">
-      <Icon className="h-5 w-5 shrink-0" />
-      <audio controls autoPlay src={media.url} className="h-8 max-w-[260px]" />
-      <span className="text-[11px] text-muted-foreground">
-        {formatDuration(media.duration)}
-      </span>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Media dispatcher
+// ---------------------------------------------------------------------------
 
 function MediaBlock({
-  media,
-  out,
-  onOpenLightbox,
+  media, out, onOpenLightbox,
 }: {
-  media: MessageMedia;
-  out: boolean;
-  onOpenLightbox: (url: string) => void;
+  media: MessageMedia; out: boolean; onOpenLightbox: (url: string) => void;
 }) {
   if (media.kind === "photo") {
-    return (
-      <PhotoBlock
-        url={media.url}
-        width={media.width}
-        height={media.height}
-        onOpenLightbox={onOpenLightbox}
-      />
-    );
+    return <PhotoBlock url={media.url} width={media.width} height={media.height} onOpenLightbox={onOpenLightbox} />;
   }
-
   if (media.kind === "video") return <VideoBlock media={media} />;
   if (media.kind === "sticker") return <StickerBlock url={media.url} />;
   if (media.kind === "voice" || media.kind === "audio") {
     return <AudioBlock media={media} out={out} />;
   }
-
   if (media.kind === "document") {
     return (
       <a
@@ -318,7 +464,6 @@ function MediaBlock({
       </a>
     );
   }
-
   if (media.kind === "webpage") {
     if (!media.url && !media.title) return null;
     return (
@@ -330,37 +475,28 @@ function MediaBlock({
       >
         {media.title && <div className="text-sm font-medium">{media.title}</div>}
         {media.description && (
-          <div className="line-clamp-2 text-xs text-muted-foreground">
-            {media.description}
-          </div>
+          <div className="line-clamp-2 text-xs text-muted-foreground">{media.description}</div>
         )}
         {media.url && (
-          <div className="mt-1 truncate text-[11px] text-primary">
-            {media.url}
-          </div>
+          <div className="mt-1 truncate text-[11px] text-primary">{media.url}</div>
         )}
       </a>
     );
   }
-
   if (media.kind === "other") {
-    return (
-      <Badge variant="outline" className="text-[11px]">
-        {media.label}
-      </Badge>
-    );
+    return <Badge variant="outline" className="text-[11px]">{media.label}</Badge>;
   }
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Reply preview
+// ---------------------------------------------------------------------------
+
 function ReplyPreviewBlock({
-  reply,
-  out,
-  onJump,
+  reply, out, onJump,
 }: {
-  reply: NonNullable<Message["replyTo"]>;
-  out: boolean;
-  onJump: (id: number) => void;
+  reply: NonNullable<Message["replyTo"]>; out: boolean; onJump: (id: number) => void;
 }) {
   return (
     <button
@@ -372,29 +508,13 @@ function ReplyPreviewBlock({
           ? "border-white/70 bg-white/10 hover:bg-white/15"
           : "border-primary bg-primary/10 hover:bg-primary/15",
       )}
-      data-testid={`reply-preview-${reply.id}`}
     >
-      <CornerUpLeft
-        className={cn(
-          "mt-0.5 h-3 w-3 shrink-0",
-          out ? "text-primary-foreground/80" : "text-primary",
-        )}
-      />
+      <CornerUpLeft className={cn("mt-0.5 h-3 w-3 shrink-0", out ? "text-primary-foreground/80" : "text-primary")} />
       <div className="min-w-0 flex-1">
-        <div
-          className={cn(
-            "truncate text-[11px] font-medium",
-            out ? "text-primary-foreground" : "text-primary",
-          )}
-        >
+        <div className={cn("truncate text-[11px] font-medium", out ? "text-primary-foreground" : "text-primary")}>
           {reply.senderName ?? "Message"}
         </div>
-        <div
-          className={cn(
-            "truncate text-[11px]",
-            out ? "text-primary-foreground/80" : "text-muted-foreground",
-          )}
-        >
+        <div className={cn("truncate text-[11px]", out ? "text-primary-foreground/80" : "text-muted-foreground")}>
           {summarizeReply(reply.text, reply.hasMedia)}
         </div>
       </div>
@@ -402,32 +522,130 @@ function ReplyPreviewBlock({
   );
 }
 
-function MessageStatus({
-  msg,
-  readOutboxMaxId,
-}: {
-  msg: Message;
-  readOutboxMaxId: number | null;
-}) {
+// ---------------------------------------------------------------------------
+// Read status
+// ---------------------------------------------------------------------------
+
+function MessageStatus({ msg, readOutboxMaxId }: { msg: Message; readOutboxMaxId: number | null }) {
   if (!msg.out) return null;
   const isRead = readOutboxMaxId != null && msg.id <= readOutboxMaxId;
   return isRead ? (
-    <CheckCheck className="h-3.5 w-3.5" data-testid={`status-read-${msg.id}`} />
+    <CheckCheck className="h-3.5 w-3.5" />
   ) : (
-    <Check className="h-3.5 w-3.5" data-testid={`status-sent-${msg.id}`} />
+    <Check className="h-3.5 w-3.5" />
   );
 }
 
+// ---------------------------------------------------------------------------
+// Reaction chips
+// ---------------------------------------------------------------------------
+
+function ReactionChips({
+  reactions: reactionsProp, chatId, msgId, out,
+}: {
+  reactions: Reaction[] | undefined; chatId: string; msgId: number; out: boolean;
+}) {
+  const reactions = reactionsProp ?? [];
+  const [showPicker, setShowPicker] = useState(false);
+  const qc = useQueryClient();
+
+  const toggle = useMutation({
+    mutationFn: ({ emoji, chosen }: { emoji: string; chosen: boolean }) =>
+      api.setReaction(chatId, msgId, chosen ? null : emoji),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["messages"] });
+    },
+  });
+
+  if (reactions.length === 0 && !showPicker) {
+    return (
+      <button
+        type="button"
+        onClick={() => setShowPicker(true)}
+        className={cn(
+          "mt-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity",
+          out
+            ? "bg-white/10 text-primary-foreground/70 hover:bg-white/20"
+            : "bg-muted text-muted-foreground hover:bg-muted/80",
+        )}
+      >
+        <Smile className="h-3 w-3" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          type="button"
+          onClick={() => toggle.mutate({ emoji: r.emoji, chosen: r.chosen })}
+          disabled={toggle.isPending}
+          className={cn(
+            "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors",
+            r.chosen
+              ? out
+                ? "bg-white/20 text-primary-foreground"
+                : "bg-primary/15 text-primary ring-1 ring-primary/30"
+              : out
+                ? "bg-white/10 text-primary-foreground/80 hover:bg-white/20"
+                : "bg-muted text-foreground hover:bg-muted/80",
+          )}
+        >
+          <span>{r.emoji}</span>
+          <span className="text-[10px] font-medium">{r.count}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => setShowPicker(!showPicker)}
+        className={cn(
+          "flex items-center rounded-full px-1.5 py-0.5 text-[11px] transition-colors",
+          out
+            ? "bg-white/10 text-primary-foreground/70 hover:bg-white/20"
+            : "bg-muted text-muted-foreground hover:bg-muted/80",
+        )}
+      >
+        <Smile className="h-3 w-3" />
+      </button>
+      {showPicker && (
+        <div className={cn(
+          "absolute z-20 mt-1 flex gap-1 rounded-xl border bg-card p-2 shadow-lg",
+          out ? "right-0" : "left-0",
+        )} style={{ bottom: "100%" }}>
+          {COMMON_REACTIONS.map((emoji) => {
+            const existing = reactions.find((r) => r.emoji === emoji);
+            return (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  toggle.mutate({ emoji, chosen: !!existing?.chosen });
+                  setShowPicker(false);
+                }}
+                className={cn(
+                  "rounded-lg p-1.5 text-lg transition-colors hover:bg-muted",
+                  existing?.chosen && "bg-primary/10",
+                )}
+              >
+                {emoji}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Message bubble
+// ---------------------------------------------------------------------------
+
 function MessageBubble({
-  msg,
-  showAvatar,
-  showName,
-  dialog,
-  onReply,
-  onJump,
-  onOpenLightbox,
-  highlight,
-  registerRef,
+  msg, showAvatar, showName, dialog, onReply, onJump, onOpenLightbox,
+  highlight, registerRef, onAvatarClick,
 }: {
   msg: Message;
   showAvatar: boolean;
@@ -438,131 +656,154 @@ function MessageBubble({
   onOpenLightbox: (url: string) => void;
   highlight: boolean;
   registerRef: (id: number, el: HTMLDivElement | null) => void;
+  onAvatarClick: (senderId: string) => void;
 }) {
   const out = msg.out;
   const isChannel = dialog.type === "channel";
   const isGroup = dialog.type === "chat";
-  // Only fall back to dialog title for non-group chats (DMs/channels). In a
-  // group, falling back would label every unknown message with the group name.
   const senderId = msg.fromId ?? dialog.id;
   const senderName = msg.fromName ?? (isGroup ? "Unknown" : dialog.title);
   const nameColor = senderTextColor(senderId);
 
   return (
-    <div
-      ref={(el) => registerRef(msg.id, el)}
-      className={cn(
-        "group flex items-end gap-2 transition-colors",
-        out ? "justify-end" : "justify-start",
-        highlight && "rounded-lg bg-primary/10",
-      )}
-    >
-      {!out && !isChannel && (
-        <div className={cn("w-8 shrink-0", !showAvatar && "invisible")}>
-          {showAvatar && (
-            <ChatAvatar
-              peerId={senderId}
-              title={senderName}
-              hasPhoto={msg.senderHasPhoto}
-              size={32}
-            />
-          )}
-        </div>
-      )}
+    <MessageContextMenu msg={msg} dialog={dialog} onReply={onReply}>
       <div
+        ref={(el) => registerRef(msg.id, el)}
         className={cn(
-          "relative max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
-          out
-            ? "rounded-br-sm bg-primary text-primary-foreground"
-            : "rounded-bl-sm bg-card",
-          isChannel && !out && "max-w-[85%]",
+          "group flex items-end gap-2 transition-colors",
+          out ? "justify-end" : "justify-start",
+          highlight && "rounded-lg bg-primary/10",
         )}
       >
-        {/* Hover reply action */}
-        <button
-          type="button"
-          onClick={() => onReply(msg)}
-          aria-label="Reply"
-          className={cn(
-            "absolute -top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100",
-            "flex h-7 w-7 items-center justify-center rounded-full bg-card text-foreground border",
-            out ? "-left-9" : "-right-9",
-          )}
-          data-testid={`button-reply-${msg.id}`}
-        >
-          <Reply className="h-3.5 w-3.5" />
-        </button>
-
-        {!out && !isChannel && showName && (
-          <div
-            className={cn("mb-1 text-xs font-semibold", nameColor)}
-            data-testid={`sender-name-${msg.id}`}
-          >
-            {senderName}
+        {/* Sender avatar (shown at bottom of each run) */}
+        {!out && !isChannel && (
+          <div className={cn("w-8 shrink-0", !showAvatar && "invisible")}>
+            {showAvatar && (
+              <button
+                type="button"
+                onClick={() => onAvatarClick(senderId)}
+                className="rounded-full transition-opacity hover:opacity-80"
+              >
+                <ChatAvatar
+                  peerId={senderId}
+                  title={senderName}
+                  hasPhoto={msg.senderHasPhoto}
+                  size={32}
+                />
+              </button>
+            )}
           </div>
         )}
 
-        {msg.fwdFrom && (
+        {/* Bubble */}
+        <div className="relative">
           <div
             className={cn(
-              "mb-1 flex items-center gap-1 text-[11px] italic",
-              out ? "text-primary-foreground/80" : "text-muted-foreground",
+              "relative max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+              out
+                ? "rounded-br-sm bg-primary text-primary-foreground"
+                : "rounded-bl-sm bg-card",
+              isChannel && !out && "max-w-[85%]",
             )}
-            data-testid={`forwarded-${msg.id}`}
           >
-            <Forward className="h-3 w-3" />
-            <span>
-              Forwarded
-              {msg.fwdFrom.fromName ? ` from ${msg.fwdFrom.fromName}` : ""}
-            </span>
+            {/* Hover reply button */}
+            <button
+              type="button"
+              onClick={() => onReply(msg)}
+              aria-label="Reply"
+              className={cn(
+                "absolute -top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100",
+                "flex h-7 w-7 items-center justify-center rounded-full bg-card text-foreground border",
+                out ? "-left-9" : "-right-9",
+              )}
+            >
+              <Reply className="h-3.5 w-3.5" />
+            </button>
+
+            {/* Sender name (top of run) */}
+            {!out && !isChannel && showName && (
+              <div className={cn("mb-1 text-xs font-semibold", nameColor)}>
+                {senderName}
+              </div>
+            )}
+
+            {/* Forwarded badge */}
+            {msg.fwdFrom && (
+              <div
+                className={cn(
+                  "mb-1 flex items-center gap-1 text-[11px] italic",
+                  out ? "text-primary-foreground/80" : "text-muted-foreground",
+                )}
+              >
+                <Forward className="h-3 w-3" />
+                <span>
+                  Forwarded{msg.fwdFrom.fromName ? ` from ${msg.fwdFrom.fromName}` : ""}
+                </span>
+              </div>
+            )}
+
+            {/* Reply preview */}
+            {msg.replyTo && (
+              <ReplyPreviewBlock reply={msg.replyTo} out={out} onJump={onJump} />
+            )}
+
+            {/* Media */}
+            {msg.media && (
+              <div className={cn("mb-1", !msg.text && "mb-0")}>
+                <MediaBlock media={msg.media} out={out} onOpenLightbox={onOpenLightbox} />
+              </div>
+            )}
+
+            {/* Text */}
+            {msg.text && (
+              <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+            )}
+
+            {/* Footer: edited · views · time · status */}
+            <div
+              className={cn(
+                "mt-1 flex items-center justify-end gap-1.5 text-[10px]",
+                out ? "text-primary-foreground/70" : "text-muted-foreground",
+              )}
+            >
+              {msg.editDate && (
+                <span
+                  className="flex items-center gap-0.5"
+                  title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                  edited
+                </span>
+              )}
+              {msg.views != null && (
+                <span className="flex items-center gap-0.5">
+                  <Eye className="h-3 w-3" />
+                  {msg.views.toLocaleString()}
+                </span>
+              )}
+              <span>{formatTime(msg.date)}</span>
+              <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
+            </div>
           </div>
-        )}
 
-        {msg.replyTo && (
-          <ReplyPreviewBlock reply={msg.replyTo} out={out} onJump={onJump} />
-        )}
-
-        {msg.media && (
-          <div className={cn("mb-1", !msg.text && "mb-0")}>
-            <MediaBlock
-              media={msg.media}
+          {/* Reaction chips (outside bubble so they don't affect max-w) */}
+          <div className={cn("relative flex", out ? "justify-end" : "justify-start")}>
+            <ReactionChips
+              reactions={msg.reactions}
+              chatId={dialog.id}
+              msgId={msg.id}
               out={out}
-              onOpenLightbox={onOpenLightbox}
             />
           </div>
-        )}
-        {msg.text && (
-          <div className="whitespace-pre-wrap break-words">{msg.text}</div>
-        )}
-        <div
-          className={cn(
-            "mt-1 flex items-center justify-end gap-1.5 text-[10px]",
-            out ? "text-primary-foreground/70" : "text-muted-foreground",
-          )}
-        >
-          {msg.editDate && (
-            <span
-              className="flex items-center gap-0.5"
-              title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
-              data-testid={`edited-${msg.id}`}
-            >
-              <Pencil className="h-2.5 w-2.5" />
-              edited
-            </span>
-          )}
-          {msg.views != null && (
-            <span className="flex items-center gap-0.5">
-              <Eye className="h-3 w-3" />
-              {msg.views.toLocaleString()}
-            </span>
-          )}
-          <span>{formatTime(msg.date)}</span>
-          <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
         </div>
       </div>
-    </div>
+    </MessageContextMenu>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Chat header subtitle
+// ---------------------------------------------------------------------------
 
 function ChatHeaderSubtitle({ dialog }: { dialog: Dialog }) {
   if (dialog.type === "channel") return <>Channel</>;
@@ -571,9 +812,7 @@ function ChatHeaderSubtitle({ dialog }: { dialog: Dialog }) {
   const presence = formatPresence(dialog.presence);
   if (presence.label) {
     return (
-      <span
-        className={cn(presence.online && "text-emerald-500 dark:text-emerald-400")}
-      >
+      <span className={cn(presence.online && "text-emerald-500 dark:text-emerald-400")}>
         {presence.label}
       </span>
     );
@@ -581,27 +820,103 @@ function ChatHeaderSubtitle({ dialog }: { dialog: Dialog }) {
   return <>User</>;
 }
 
+// ---------------------------------------------------------------------------
+// Search panel
+// ---------------------------------------------------------------------------
+
+function SearchPanel({
+  dialog,
+  onJump,
+  onClose,
+}: {
+  dialog: Dialog;
+  onJump: (id: number) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const debouncedQ = useDebounce(q, 400);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["search", dialog.id, debouncedQ],
+    queryFn: () => api.searchMessages(dialog.id, debouncedQ, 20),
+    enabled: debouncedQ.length >= 2,
+    staleTime: 30_000,
+  });
+
+  const results = data?.messages ?? [];
+
+  return (
+    <div className="border-b bg-card/80 px-4 py-2 shadow-sm">
+      <div className="relative flex items-center gap-2">
+        <Search className="h-4 w-4 text-muted-foreground" />
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search in chat…"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {results.length > 0 && (
+        <ul className="mt-2 max-h-48 overflow-y-auto divide-y rounded-lg border bg-card text-sm shadow-sm">
+          {results.map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                onClick={() => { onJump(m.id); onClose(); }}
+                className="flex w-full flex-col px-3 py-2 text-left hover:bg-muted/50"
+              >
+                <span className="text-[10px] text-muted-foreground">
+                  {m.fromName ?? "Unknown"} · {formatTime(m.date)}
+                </span>
+                <span className="truncate">{m.text || "Media"}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {debouncedQ.length >= 2 && !isLoading && results.length === 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">No messages found</p>
+      )}
+    </div>
+  );
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+// ---------------------------------------------------------------------------
+// Main MessageView
+// ---------------------------------------------------------------------------
+
 export function MessageView({ dialog }: { dialog: Dialog }) {
   const qc = useQueryClient();
-  const {
-    data,
-    isLoading,
-    error,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["messages", dialog.id, dialog.type],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api.messages(dialog.id, PAGE_SIZE, pageParam || undefined),
-    getNextPageParam: (last) => {
-      if (last.messages.length < PAGE_SIZE) return undefined;
-      const oldest = last.messages[last.messages.length - 1];
-      return oldest ? oldest.id : undefined;
-    },
-    staleTime: 10_000,
-  });
+  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["messages", dialog.id, dialog.type],
+      initialPageParam: 0,
+      queryFn: ({ pageParam }) =>
+        api.messages(dialog.id, PAGE_SIZE, pageParam || undefined),
+      getNextPageParam: (last) => {
+        if (last.messages.length < PAGE_SIZE) return undefined;
+        const oldest = last.messages[last.messages.length - 1];
+        return oldest ? oldest.id : undefined;
+      },
+      staleTime: 8_000,
+      refetchInterval: 8_000,
+    });
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -612,29 +927,37 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showSharedMedia, setShowSharedMedia] = useState(false);
+  const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
 
-  // Reset reply target when switching chats.
+  // Keyboard: Ctrl+F to toggle search
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setShowSearch((v) => !v);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Reset state on chat switch
   useEffect(() => {
     setReplyTo(null);
     setLightbox(null);
     setHighlightId(null);
-  }, [dialog.id, dialog.type]);
-
-  // Flatten + reverse so oldest renders at top, newest at bottom.
-  const allMessages: Message[] = useMemo(
-    () =>
-      (data?.pages ?? [])
-        .flatMap((p) => p.messages)
-        .slice()
-        .reverse(),
-    [data],
-  );
-
-  // Scroll to bottom on first load of a chat; preserve position when prepending.
-  useEffect(() => {
+    setShowSearch(false);
+    setShowSharedMedia(false);
     didInitialScroll.current = false;
     prevScrollHeight.current = null;
   }, [dialog.id, dialog.type]);
+
+  const allMessages: Message[] = useMemo(
+    () => (data?.pages ?? []).flatMap((p) => p.messages).slice().reverse(),
+    [data],
+  );
 
   useLayoutEffect(() => {
     const v = viewportRef.current;
@@ -648,7 +971,6 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
     }
   }, [allMessages.length]);
 
-  // Observe top sentinel: when visible, fetch older messages.
   useEffect(() => {
     const sentinel = topSentinelRef.current;
     const v = viewportRef.current;
@@ -667,8 +989,7 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
     return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, allMessages.length]);
 
-  // Mark chat as read when messages first load (or new ones arrive) for any
-  // chat with unread messages.
+  // Mark as read
   const markRead = useMutation({
     mutationFn: ({ chatId, maxId }: { chatId: string; maxId: number }) =>
       api.markRead(chatId, maxId),
@@ -678,176 +999,201 @@ export function MessageView({ dialog }: { dialog: Dialog }) {
     if (allMessages.length === 0) return;
     const newest = allMessages[allMessages.length - 1];
     if (!newest) return;
-    if (
-      dialog.readInboxMaxId != null &&
-      newest.id <= dialog.readInboxMaxId
-    ) {
-      return;
-    }
+    if (dialog.readInboxMaxId != null && newest.id <= dialog.readInboxMaxId) return;
     markRead.mutate(
       { chatId: dialog.id, maxId: newest.id },
-      {
-        onSuccess: () => {
-          qc.invalidateQueries({ queryKey: ["dialogs"] });
-        },
-      },
+      { onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dialogs"] }); } },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    dialog.id,
-    dialog.type,
-    dialog.unreadCount,
-    dialog.readInboxMaxId,
-    allMessages.length,
-  ]);
+  }, [dialog.id, dialog.type, dialog.unreadCount, dialog.readInboxMaxId, allMessages.length]);
 
-  const registerRef = (id: number, el: HTMLDivElement | null) => {
+  const registerRef = useCallback((id: number, el: HTMLDivElement | null) => {
     if (el) messageRefs.current.set(id, el);
     else messageRefs.current.delete(id);
-  };
+  }, []);
 
-  const handleJump = (id: number) => {
+  const handleJump = useCallback((id: number) => {
     const el = messageRefs.current.get(id);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     setHighlightId(id);
     window.setTimeout(() => setHighlightId(null), 1500);
-  };
+  }, []);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b bg-card/50 px-4 py-3">
-        <ChatAvatar
-          peerId={dialog.id}
-          title={dialog.title}
-          hasPhoto={dialog.hasPhoto}
-          size={40}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-medium">{dialog.title}</span>
-            {dialog.isVerified && (
-              <BadgeCheck className="h-4 w-4 text-primary" />
-            )}
+    <div className="flex h-full min-w-0 flex-1">
+      {/* Main chat column */}
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        {/* Header */}
+        <div className="flex items-center gap-3 border-b bg-card/50 px-4 py-3">
+          <ChatAvatar
+            peerId={dialog.id}
+            title={dialog.title}
+            hasPhoto={dialog.hasPhoto}
+            size={40}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-medium">{dialog.title}</span>
+              {dialog.isVerified && <BadgeCheck className="h-4 w-4 text-primary" />}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {dialog.username ? `@${dialog.username}` : ""}
+              {dialog.username && " · "}
+              <ChatHeaderSubtitle dialog={dialog} />
+              {allMessages.length > 0 && <span> · {allMessages.length} loaded</span>}
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground">
-            {dialog.username ? `@${dialog.username}` : ""}
-            {dialog.username && " · "}
-            <ChatHeaderSubtitle dialog={dialog} />
-            {allMessages.length > 0 && (
-              <span> · {allMessages.length} loaded</span>
+
+          {/* Header actions */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Search in chat (Ctrl+F)"
+              onClick={() => setShowSearch((v) => !v)}
+              className={cn("h-8 w-8", showSearch && "bg-primary/10 text-primary")}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Shared media"
+              onClick={() => setShowSharedMedia((v) => !v)}
+              className={cn("h-8 w-8", showSharedMedia && "bg-primary/10 text-primary")}
+            >
+              <Images className="h-4 w-4" />
+            </Button>
+            {dialog.username && (
+              <Button asChild variant="ghost" size="sm">
+                <a href={`https://t.me/${dialog.username}`} target="_blank" rel="noreferrer">
+                  <ExternalLink className="mr-1 h-3 w-3" />
+                  Open
+                </a>
+              </Button>
             )}
           </div>
         </div>
-        {dialog.username && (
-          <Button asChild variant="ghost" size="sm">
-            <a
-              href={`https://t.me/${dialog.username}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ExternalLink className="mr-1 h-3 w-3" />
-              Open in Telegram
-            </a>
-          </Button>
-        )}
-      </div>
 
-      <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/30">
-        {isLoading && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Loading messages…
-          </div>
+        {/* Search panel */}
+        {showSearch && (
+          <SearchPanel
+            dialog={dialog}
+            onJump={handleJump}
+            onClose={() => setShowSearch(false)}
+          />
         )}
-        {error && (
-          <div className="m-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-            {(error as Error).message}
-          </div>
-        )}
-        {!isLoading && allMessages.length === 0 && !error && (
-          <div className="flex h-full items-center justify-center py-20 text-sm text-muted-foreground">
-            No messages
-          </div>
-        )}
-        {allMessages.length > 0 && (
-          <div className="space-y-1 px-4 py-4">
-            <div ref={topSentinelRef} />
-            {hasNextPage && (
-              <div className="flex justify-center py-2 text-xs text-muted-foreground">
-                {isFetchingNextPage ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading older messages…
-                  </span>
-                ) : (
-                  <span>Scroll up for more</span>
-                )}
-              </div>
-            )}
-            {!hasNextPage && (
-              <div className="py-2 text-center text-[11px] text-muted-foreground">
-                Beginning of chat history
-              </div>
-            )}
-            {allMessages.map((m, i) => {
-              const prev = allMessages[i - 1];
-              const next = allMessages[i + 1];
-              const showDate =
-                !prev ||
-                new Date(prev.date * 1000).toDateString() !==
-                  new Date(m.date * 1000).toDateString();
-              // Sender name shows at the TOP of a run (first message from a
-              // given sender), so compare against the previous (older) message.
-              // Date separator also resets a run visually.
-              const sameAsPrev =
-                !showDate &&
-                prev &&
-                prev.fromId === m.fromId &&
-                prev.out === m.out;
-              const showName = !sameAsPrev;
-              // Avatar shows at the BOTTOM of a run (last message from a given
-              // sender), so compare against the next (newer) message.
-              const sameAsNext =
-                next && next.fromId === m.fromId && next.out === m.out;
-              const showAvatar = !sameAsNext;
-              return (
-                <div key={m.id}>
-                  {showDate && (
-                    <div className="my-3 flex justify-center">
-                      <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
-                        {formatDateLabel(m.date)}
-                      </span>
-                    </div>
+
+        {/* Messages */}
+        <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/30">
+          {isLoading && (
+            <div className="flex items-center justify-center py-20 text-muted-foreground">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              Loading messages…
+            </div>
+          )}
+          {error && (
+            <div className="m-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              {(error as Error).message}
+            </div>
+          )}
+          {!isLoading && allMessages.length === 0 && !error && (
+            <div className="flex h-full items-center justify-center py-20 text-sm text-muted-foreground">
+              No messages
+            </div>
+          )}
+
+          {allMessages.length > 0 && (
+            <div className="space-y-1 px-4 py-4">
+              <div ref={topSentinelRef} />
+              {hasNextPage && (
+                <div className="flex justify-center py-2 text-xs text-muted-foreground">
+                  {isFetchingNextPage ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Loading older messages…
+                    </span>
+                  ) : (
+                    <span>Scroll up for more</span>
                   )}
-                  <MessageBubble
-                    msg={m}
-                    showAvatar={showAvatar}
-                    showName={showName}
-                    dialog={dialog}
-                    onReply={setReplyTo}
-                    onJump={handleJump}
-                    onOpenLightbox={setLightbox}
-                    highlight={highlightId === m.id}
-                    registerRef={registerRef}
-                  />
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+              {!hasNextPage && (
+                <div className="py-2 text-center text-[11px] text-muted-foreground">
+                  Beginning of chat history
+                </div>
+              )}
+
+              {allMessages.map((m, i) => {
+                const prev = allMessages[i - 1];
+                const next = allMessages[i + 1];
+                const showDate =
+                  !prev ||
+                  new Date(prev.date * 1000).toDateString() !==
+                    new Date(m.date * 1000).toDateString();
+                const sameAsPrev =
+                  !showDate && prev && prev.fromId === m.fromId && prev.out === m.out;
+                const showName = !sameAsPrev;
+                const sameAsNext =
+                  next && next.fromId === m.fromId && next.out === m.out;
+                const showAvatar = !sameAsNext;
+
+                return (
+                  <div key={m.id}>
+                    {showDate && (
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
+                          {formatDateLabel(m.date)}
+                        </span>
+                      </div>
+                    )}
+                    <MessageBubble
+                      msg={m}
+                      showAvatar={showAvatar}
+                      showName={showName}
+                      dialog={dialog}
+                      onReply={setReplyTo}
+                      onJump={handleJump}
+                      onOpenLightbox={setLightbox}
+                      highlight={highlightId === m.id}
+                      registerRef={registerRef}
+                      onAvatarClick={setProfilePeerId}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <Composer
+          chatId={dialog.id}
+          chatType={dialog.type}
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+        />
       </div>
 
-      <Composer
-        chatId={dialog.id}
-        chatType={dialog.type}
-        replyTo={replyTo}
-        onClearReply={() => setReplyTo(null)}
-      />
-
-      {lightbox && (
-        <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />
+      {/* Shared media side panel */}
+      {showSharedMedia && (
+        <SharedMediaPanel
+          dialog={dialog}
+          onClose={() => setShowSharedMedia(false)}
+          onOpenLightbox={setLightbox}
+        />
       )}
+
+      {/* Lightbox */}
+      {lightbox && <PhotoLightbox url={lightbox} onClose={() => setLightbox(null)} />}
+
+      {/* User profile card */}
+      <UserProfileCard
+        peerId={profilePeerId}
+        peerDialog={dialog.type === "user" && profilePeerId === dialog.id ? dialog : null}
+        open={profilePeerId !== null}
+        onClose={() => setProfilePeerId(null)}
+      />
     </div>
   );
 }

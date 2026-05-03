@@ -65,3 +65,29 @@ The viewer has been extended beyond a basic chat reader with native Telegram-lik
 - **Online / last seen**: `DialogEntry.presence` (mapped from `Api.UserStatus*`) drives a green dot on user avatars in the chat list and a subtitle like "online" / "last seen at 14:32" in the chat header.
 - **Photo lightbox**: clicking any loaded photo opens a fullscreen overlay (`components/PhotoLightbox.tsx`); ESC or backdrop closes.
 - **Dark mode**: `hooks/use-theme.ts` persists the choice in `localStorage` and toggles the `.dark` class on `<html>`. A sun/moon button lives in the sidebar header next to the logout button.
+
+## 15-Feature Upgrade (May 2026)
+
+All 15 improvements implemented across backend and frontend:
+
+### Backend additions (`telegram/chats.ts`, `server/chats.ts`)
+- `GET /api/search?chatId=X&q=Y&limit=N` — full-text message search via gramjs `getMessages({ search })`.
+- `GET /api/users/:peerId` — peer info including bio via `GetFullUser` / `GetFullChannel` invoke.
+- `POST /api/media` (multipart/form-data, multer memoryStorage 50 MB) — sends file with optional caption + replyToMsgId using gramjs `CustomFile`.
+- `POST /api/reactions/:chatId/:msgId` — toggle emoji reaction via `Api.messages.SendReaction`.
+- `MessageEntry.reactions: Reaction[]` — extracted from `Api.MessageReactions` on every fetched message.
+
+### Frontend additions
+- **Filter tabs** (`ChatList.tsx`): All · Unread · Groups · Channels · Bots with per-tab unread counts.
+- **Pinned chats section**: separated "Pinned" header above regular chats when pinned chats exist.
+- **Total unread badge** in sidebar header (sum of all dialog unread counts).
+- **Dialog polling**: 15 s `refetchInterval` on dialogs; 8 s on active chat messages.
+- **Keyboard shortcuts**: `Ctrl+K` focuses chat search; `Ctrl+F` toggles in-chat search panel; `Escape` clears reply / closes panels.
+- **Desktop notifications** (`hooks/use-notifications.ts`): tracks unread counts across renders, fires `Notification` when count rises while tab is unfocused; click navigates to that chat.
+- **Right-click context menu** (`MessageContextMenu.tsx`): Copy text, Reply, Copy link, Open in Telegram — built on Radix `ContextMenu`.
+- **Voice waveform** in `MessageView.tsx`: Web Audio API decodes audio buffer, samples 48 bars, SVG rendering, play/pause with scrubbing via click.
+- **Emoji reactions** (`ReactionChips`): displays per-message reaction counts, click to toggle; 8-emoji picker popover.
+- **File upload in Composer** (`Composer.tsx`): paperclip button, image/file preview, POSTs multipart to `/api/media`.
+- **User profile card** (`UserProfileCard.tsx`): click any avatar → modal with name, username, bio, phone, online status.
+- **Shared media panel** (`SharedMediaPanel.tsx`): side panel with Photos/Videos/Files tabs; reuses the existing messages infinite-query cache.
+- **In-chat message search** (`SearchPanel` in `MessageView.tsx`): debounced search via `/api/search`, results listed below header, click to scroll-and-highlight.

@@ -1,16 +1,22 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import multer from "multer";
 import {
   getMe,
   listDialogs,
   listMessages,
+  searchMessages,
+  getUserInfo,
   getProfilePhoto,
   openMessageMedia,
   sendChatMessage,
+  sendMediaFile,
   markChatRead,
+  setMessageReaction,
 } from "../telegram/chats";
 import { streamRangedResponse } from "../lib/range";
 
 const router: IRouter = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 function handleError(req: Request, res: Response, err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : String(err);
@@ -26,10 +32,13 @@ function handleError(req: Request, res: Response, err: unknown, fallback: string
   res.status(500).json({ error: fallback, detail: message });
 }
 
+// ---------------------------------------------------------------------------
+// Me + dialogs
+// ---------------------------------------------------------------------------
+
 router.get("/me", async (req: Request, res: Response) => {
   try {
-    const me = await getMe();
-    res.json(me);
+    res.json(await getMe());
   } catch (err) {
     handleError(req, res, err, "Failed to fetch user info");
   }
@@ -45,6 +54,10 @@ router.get("/dialogs", async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
 router.get("/messages", async (req: Request, res: Response) => {
   const chatId = (req.query["chatId"] as string | undefined)?.trim();
   if (!chatId) {
@@ -54,14 +67,94 @@ router.get("/messages", async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query["limit"] ?? 50) || 50, 100);
   const offsetIdRaw = req.query["offsetId"];
   const offsetId = offsetIdRaw ? Number(offsetIdRaw) : undefined;
-
   try {
-    const result = await listMessages(chatId, limit, offsetId);
-    res.json(result);
+    res.json(await listMessages(chatId, limit, offsetId));
   } catch (err) {
     handleError(req, res, err, "Failed to fetch messages");
   }
 });
+
+router.get("/search", async (req: Request, res: Response) => {
+  const chatId = (req.query["chatId"] as string | undefined)?.trim();
+  const q = (req.query["q"] as string | undefined)?.trim();
+  if (!chatId || !q) {
+    res.status(400).json({ error: "Missing required query params: chatId, q" });
+    return;
+  }
+  const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 50);
+  try {
+    res.json(await searchMessages(chatId, q, limit));
+  } catch (err) {
+    handleError(req, res, err, "Failed to search messages");
+  }
+});
+
+router.post("/messages", async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { chatId?: string; text?: string; replyToMsgId?: number };
+  const chatId = body.chatId?.trim();
+  const text = body.text;
+  if (!chatId || !text || !text.trim()) {
+    res.status(400).json({ error: "chatId and text are required" });
+    return;
+  }
+  try {
+    res.json(await sendChatMessage(chatId, text, body.replyToMsgId));
+  } catch (err) {
+    handleError(req, res, err, "Failed to send message");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Media upload (send file)
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/media",
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    const file = req.file;
+    const chatId = (req.body as { chatId?: string }).chatId?.trim();
+    if (!file || !chatId) {
+      res.status(400).json({ error: "file and chatId are required" });
+      return;
+    }
+    const caption = (req.body as { caption?: string }).caption?.trim();
+    const replyToMsgId = Number((req.body as { replyToMsgId?: string }).replyToMsgId) || undefined;
+    try {
+      res.json(
+        await sendMediaFile(chatId, file.buffer, file.originalname, caption, replyToMsgId),
+      );
+    } catch (err) {
+      handleError(req, res, err, "Failed to send media");
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Reactions
+// ---------------------------------------------------------------------------
+
+router.post("/reactions/:chatId/:msgId", async (req: Request, res: Response) => {
+  const chatRaw = req.params["chatId"];
+  const msgRaw = req.params["msgId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
+  if (!chatId || !Number.isFinite(msgId)) {
+    res.status(400).json({ error: "Invalid chatId or msgId" });
+    return;
+  }
+  const body = (req.body ?? {}) as { emoji?: string | null };
+  const emoji = typeof body.emoji === "string" ? body.emoji : null;
+  try {
+    res.json(await setMessageReaction(chatId, msgId, emoji));
+  } catch (err) {
+    handleError(req, res, err, "Failed to set reaction");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Read
+// ---------------------------------------------------------------------------
 
 router.post("/dialogs/:chatId/read", async (req: Request, res: Response) => {
   const raw = req.params["chatId"];
@@ -76,32 +169,33 @@ router.post("/dialogs/:chatId/read", async (req: Request, res: Response) => {
       ? body.maxId
       : undefined;
   try {
-    const result = await markChatRead(chatId, maxId);
-    res.json(result);
+    res.json(await markChatRead(chatId, maxId));
   } catch (err) {
     handleError(req, res, err, "Failed to mark chat as read");
   }
 });
 
-router.post("/messages", async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as {
-    chatId?: string;
-    text?: string;
-    replyToMsgId?: number;
-  };
-  const chatId = body.chatId?.trim();
-  const text = body.text;
-  if (!chatId || !text || !text.trim()) {
-    res.status(400).json({ error: "chatId and text are required" });
+// ---------------------------------------------------------------------------
+// User info
+// ---------------------------------------------------------------------------
+
+router.get("/users/:peerId", async (req: Request, res: Response) => {
+  const raw = req.params["peerId"];
+  const peerId = (Array.isArray(raw) ? raw[0] : raw) ?? "";
+  if (!peerId) {
+    res.status(400).json({ error: "Missing peerId" });
     return;
   }
   try {
-    const result = await sendChatMessage(chatId, text, body.replyToMsgId);
-    res.json(result);
+    res.json(await getUserInfo(peerId));
   } catch (err) {
-    handleError(req, res, err, "Failed to send message");
+    handleError(req, res, err, "Failed to fetch user info");
   }
 });
+
+// ---------------------------------------------------------------------------
+// Photo + media
+// ---------------------------------------------------------------------------
 
 router.get("/photo/:peerId", async (req: Request, res: Response) => {
   const raw = req.params["peerId"];
@@ -145,7 +239,6 @@ router.get("/media/:chatId/:msgId", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "private, max-age=300");
 
     if (opened.fullBuffer) {
-      // Small media (photos/thumbs) — send the buffer in one shot.
       if (opened.info.mimeType) res.setHeader("Content-Type", opened.info.mimeType);
       res.setHeader("Content-Length", String(opened.info.size));
       if (forceDownload) {

@@ -70,6 +70,12 @@ export type MessageMedia =
     }
   | { kind: "other"; label: string };
 
+export interface Reaction {
+  emoji: string;
+  count: number;
+  chosen: boolean;
+}
+
 export interface ReplyPreview {
   id: number;
   text: string;
@@ -95,7 +101,19 @@ export interface Message {
   replyTo: ReplyPreview | null;
   fwdFrom: ForwardInfo | null;
   views: number | null;
+  reactions: Reaction[];
   media: MessageMedia | null;
+}
+
+export interface UserInfo {
+  id: string;
+  name: string;
+  username: string | null;
+  bio: string | null;
+  phone: string | null;
+  isBot: boolean;
+  hasPhoto: boolean;
+  type: "user" | "chat" | "channel";
 }
 
 async function get<T>(url: string): Promise<T> {
@@ -128,41 +146,78 @@ async function postJson<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   me: () => get<Me>("/api/me"),
+
   dialogs: (limit = 100) =>
     get<{ count: number; dialogs: Dialog[] }>(`/api/dialogs?limit=${limit}`),
+
   messages: (chatId: string, limit = 50, offsetId?: number) => {
     const p = new URLSearchParams({ chatId, limit: String(limit) });
     if (offsetId) p.set("offsetId", String(offsetId));
     return get<{ chatId: string; messages: Message[] }>(`/api/messages?${p}`);
   },
+
+  searchMessages: (chatId: string, q: string, limit = 20) => {
+    const p = new URLSearchParams({ chatId, q, limit: String(limit) });
+    return get<{ chatId: string; messages: Message[] }>(`/api/search?${p}`);
+  },
+
+  getUserInfo: (peerId: string) =>
+    get<UserInfo>(`/api/users/${encodeURIComponent(peerId)}`),
+
   photoUrl: (peerId: string) => `/api/photo/${encodeURIComponent(peerId)}`,
+
   sendMessage: (chatId: string, text: string, replyToMsgId?: number) =>
     postJson<{ id: number; date: number }>("/api/messages", {
       chatId,
       text,
       ...(replyToMsgId ? { replyToMsgId } : {}),
     }),
+
+  sendMedia: (
+    chatId: string,
+    file: File,
+    caption?: string,
+    replyToMsgId?: number,
+  ) => {
+    const fd = new FormData();
+    fd.append("chatId", chatId);
+    fd.append("file", file);
+    if (caption) fd.append("caption", caption);
+    if (replyToMsgId) fd.append("replyToMsgId", String(replyToMsgId));
+    return fetch("/api/media", { method: "POST", body: fd }).then(async (r) => {
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      return r.json() as Promise<{ id: number; date: number }>;
+    });
+  },
+
+  setReaction: (chatId: string, msgId: number, emoji: string | null) =>
+    postJson<{ ok: true }>(`/api/reactions/${encodeURIComponent(chatId)}/${msgId}`, { emoji }),
+
   markRead: (chatId: string, maxId?: number) =>
     postJson<{ ok: true }>(
       `/api/dialogs/${encodeURIComponent(chatId)}/read`,
       maxId != null ? { maxId } : {},
     ),
+
   authStatus: () =>
     get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
+
   sendCode: (phone: string) =>
     postJson<{ phoneCodeHash: string; isCodeViaApp: boolean }>(
       "/api/auth/send-code",
       { phone },
     ),
+
   signIn: (params: {
     phone: string;
     phoneCodeHash: string;
     code: string;
     password?: string;
   }) =>
-    postJson<{ ok: boolean; needsPassword?: boolean }>(
-      "/api/auth/sign-in",
-      params,
-    ),
+    postJson<{ ok: boolean; needsPassword?: boolean }>("/api/auth/sign-in", params),
+
   logout: () => postJson<{ ok: true }>("/api/auth/logout", {}),
 };
