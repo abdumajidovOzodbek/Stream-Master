@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Dialog } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, BadgeCheck, Bot, Pin, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDebounce } from "@/hooks/use-debounce";
 
 type FilterTab = "all" | "unread" | "groups" | "channels" | "bots";
 
@@ -43,15 +44,6 @@ interface ChatListProps {
   onSelect: (d: Dialog) => void;
 }
 
-/** Debounce a value by `delay` ms */
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
 
 export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
   function ChatList({ selectedId, onSelect }, searchRef) {

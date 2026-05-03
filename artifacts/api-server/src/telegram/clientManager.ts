@@ -11,12 +11,35 @@ if (!apiId || !apiHash) {
   throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set as environment variables.");
 }
 
+const IDLE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const EVICTION_INTERVAL_MS = 10 * 60 * 1000; // check every 10 minutes
+
 interface CachedClient {
   client: TelegramClient;
   lastUsed: number;
 }
 
 const cache = new Map<string, CachedClient>();
+
+// ---------------------------------------------------------------------------
+// Periodic idle eviction — disconnects clients unused for >30 min
+// ---------------------------------------------------------------------------
+
+async function evictIdleClients(): Promise<void> {
+  const cutoff = Date.now() - IDLE_TTL_MS;
+  const toEvict = [...cache.entries()].filter(([, v]) => v.lastUsed < cutoff);
+  for (const [sessionId, { client }] of toEvict) {
+    cache.delete(sessionId);
+    try { await client.disconnect(); } catch { /* ignore */ }
+    logger.info({ sessionId }, "Evicted idle TelegramClient from cache");
+  }
+}
+
+setInterval(() => { void evictIdleClients(); }, EVICTION_INTERVAL_MS);
+
+// ---------------------------------------------------------------------------
+// Client construction
+// ---------------------------------------------------------------------------
 
 async function buildClient(sessionId: string): Promise<TelegramClient> {
   const record = getSession(sessionId);
@@ -47,6 +70,10 @@ async function buildClient(sessionId: string): Promise<TelegramClient> {
 
   return c;
 }
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function getClientForSession(sessionId: string): Promise<TelegramClient> {
   const hit = cache.get(sessionId);

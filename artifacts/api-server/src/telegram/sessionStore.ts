@@ -17,17 +17,33 @@ export interface SessionRecord {
 
 type SessionMap = Record<string, SessionRecord>;
 
-function readMap(): SessionMap {
+// ---------------------------------------------------------------------------
+// In-memory cache — loaded once at startup, kept in sync on every write.
+// This eliminates synchronous disk reads on every API call.
+// ---------------------------------------------------------------------------
+
+let _cache: SessionMap | null = null;
+
+function loadCache(): SessionMap {
   try {
     if (fs.existsSync(SESSIONS_FILE)) {
       const raw = fs.readFileSync(SESSIONS_FILE, "utf8").trim();
       if (raw) return JSON.parse(raw) as SessionMap;
     }
   } catch (err) {
-    logger.warn({ err }, "Failed to read sessions.json");
+    logger.warn({ err }, "Failed to read sessions.json — starting with empty store");
   }
   return {};
 }
+
+function getCache(): SessionMap {
+  if (_cache === null) _cache = loadCache();
+  return _cache;
+}
+
+// ---------------------------------------------------------------------------
+// Async write queue — prevents concurrent writes from clobbering each other
+// ---------------------------------------------------------------------------
 
 let _writing = false;
 let _queued: SessionMap | null = null;
@@ -38,27 +54,33 @@ async function writeMap(map: SessionMap): Promise<void> {
   try {
     await fsp.mkdir(STORAGE_DIR, { recursive: true });
     await fsp.writeFile(SESSIONS_FILE, JSON.stringify(map, null, 2), "utf8");
+  } catch (err) {
+    logger.error({ err }, "Failed to write sessions.json");
   } finally {
     _writing = false;
     if (_queued) { const q = _queued; _queued = null; await writeMap(q); }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export function getSession(sessionId: string): SessionRecord | null {
-  return readMap()[sessionId] ?? null;
+  return getCache()[sessionId] ?? null;
 }
 
 export async function saveSession(
   sessionId: string,
   update: Partial<SessionRecord> & { sessionString: string },
 ): Promise<void> {
-  const map = readMap();
+  const map = getCache();
   map[sessionId] = { ...map[sessionId], ...update, lastSeen: Date.now() };
   await writeMap(map);
 }
 
 export async function clearSession(sessionId: string): Promise<void> {
-  const map = readMap();
+  const map = getCache();
   if (map[sessionId]) {
     map[sessionId] = { sessionString: "", lastSeen: Date.now() };
     await writeMap(map);
@@ -66,5 +88,13 @@ export async function clearSession(sessionId: string): Promise<void> {
 }
 
 export function getAllSessions(): SessionMap {
-  return readMap();
+  return getCache();
+}
+
+export function touchSession(sessionId: string): void {
+  const map = getCache();
+  if (map[sessionId]) {
+    map[sessionId] = { ...map[sessionId], lastSeen: Date.now() };
+    void writeMap(map);
+  }
 }

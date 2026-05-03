@@ -15,6 +15,16 @@ import { MessageView } from "@/components/MessageView";
 import { ChatAvatar } from "@/components/Avatar";
 import { Login } from "@/components/Login";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { api, adminApi, type Dialog } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
@@ -109,6 +119,8 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
   const [selected, setSelected] = useState<Dialog | null>(null);
   const [stealthMode, setStealthMode] = useState(() => localStorage.getItem("stealth-mode") === "1");
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const deepLinkApplied = useRef(false);
   const { toggle: toggleTheme } = useTheme();
@@ -265,7 +277,7 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onClick={() => { if (confirm("Log out of Telegram?")) api.logout().then(() => { queryClient.clear(); window.location.reload(); }); }}
+                      onClick={() => setShowLogoutDialog(true)}
                     >
                       <LogOut className="mr-2 h-4 w-4" />
                       Log out
@@ -320,6 +332,39 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
 
       {/* Modals */}
       <KeyboardShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+
+      <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log out of Telegram?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your session will be removed from this server. You can log back in at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loggingOut}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={loggingOut}
+              onClick={async (e) => {
+                e.preventDefault();
+                setLoggingOut(true);
+                try {
+                  await api.logout();
+                  queryClient.clear();
+                  window.location.reload();
+                } catch {
+                  setLoggingOut(false);
+                  setShowLogoutDialog(false);
+                }
+              }}
+            >
+              {loggingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+              Log out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
 } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   useInfiniteQuery,
   useMutation,
@@ -1023,14 +1024,6 @@ function SearchPanel({
   );
 }
 
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 // ---------------------------------------------------------------------------
 // Main MessageView

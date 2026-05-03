@@ -47,6 +47,14 @@ export function Login() {
     onError: (e) => setError((e as Error).message),
   });
 
+  function handleCodeChange(value: string) {
+    const digits = value.replace(/\D/g, "");
+    setCode(digits);
+    if (digits.length === 5 && !signIn.isPending) {
+      setTimeout(() => signIn.mutate(), 0);
+    }
+  }
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -130,9 +138,9 @@ export function Login() {
                   inputMode="numeric"
                   autoFocus
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  onChange={(e) => handleCodeChange(e.target.value)}
                   placeholder="12345"
-                  maxLength={6}
+                  maxLength={5}
                   className="h-11 w-full rounded-xl border bg-background px-3 text-center font-mono text-lg tracking-widest outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   disabled={busy}
                 />
