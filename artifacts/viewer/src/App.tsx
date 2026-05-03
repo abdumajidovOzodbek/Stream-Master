@@ -31,6 +31,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { DiscoverPage } from "@/components/DiscoverPage";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ import {
   ShieldAlert,
   CornerUpLeft,
   Lock,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -120,6 +122,7 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
   const [selected, setSelected] = useState<Dialog | null>(null);
   const [stealthMode, setStealthMode] = useState(() => localStorage.getItem("stealth-mode") === "1");
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -271,6 +274,10 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      Settings
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setShowShortcuts(true)}>
                       <Keyboard className="mr-2 h-4 w-4" />
                       Keyboard shortcuts
@@ -301,12 +308,16 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
           </div>
 
           {/* Chat list */}
-          <div className="min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
             <ChatList
               ref={searchRef}
               selectedId={selected?.id ?? null}
               onSelect={handleSelect}
             />
+            {/* Settings panel slides in over the chat list */}
+            {showSettings && (
+              <SettingsPanel onClose={() => setShowSettings(false)} />
+            )}
           </div>
         </aside>
 

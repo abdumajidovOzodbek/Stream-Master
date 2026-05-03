@@ -240,6 +240,102 @@ export const api = {
 };
 
 // ---------------------------------------------------------------------------
+// Settings API
+// ---------------------------------------------------------------------------
+
+export type PrivacyValue = "everyone" | "contacts" | "nobody";
+export type PrivacyKey = "lastSeen" | "profilePhoto" | "phone" | "forwards" | "calls";
+
+export interface ProfileInfo {
+  firstName: string;
+  lastName: string;
+  username: string;
+  phone: string;
+  bio: string;
+}
+
+export interface PrivacySettings {
+  lastSeen: PrivacyValue;
+  profilePhoto: PrivacyValue;
+  phone: PrivacyValue;
+  forwards: PrivacyValue;
+  calls: PrivacyValue;
+}
+
+export interface SessionInfo {
+  hash: string;
+  isCurrent: boolean;
+  deviceModel: string;
+  platform: string;
+  systemVersion: string;
+  appName: string;
+  appVersion: string;
+  dateCreated: number;
+  dateActive: number;
+  ip: string;
+  country: string;
+  region: string;
+}
+
+export interface BlockedUser {
+  id: string;
+  name: string;
+  username: string | null;
+}
+
+export interface TwoFAStatus {
+  hasPassword: boolean;
+  hint: string;
+  emailUnconfirmedPattern: string | null;
+}
+
+export const settingsApi = {
+  getProfile: () => get<ProfileInfo>("/api/settings/profile"),
+
+  updateProfile: (data: { firstName?: string; lastName?: string; bio?: string }) =>
+    postJson<{ ok: true }>("/api/settings/profile", data),
+
+  updateUsername: (username: string) =>
+    postJson<{ ok: true }>("/api/settings/profile/username", { username }),
+
+  uploadPhoto: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch("/api/settings/profile/photo", {
+      method: "POST",
+      headers: sessionHeaders(),
+      body: fd,
+    }).then(async (r) => {
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      return r.json() as Promise<{ ok: true }>;
+    });
+  },
+
+  getPrivacy: () => get<PrivacySettings>("/api/settings/privacy"),
+
+  setPrivacy: (key: PrivacyKey, value: PrivacyValue) =>
+    postJson<{ ok: true }>("/api/settings/privacy", { key, value }),
+
+  getSessions: () => get<{ sessions: SessionInfo[] }>("/api/settings/sessions"),
+
+  terminateSession: (hash: string) =>
+    postJson<{ ok: true }>(`/api/settings/sessions/${encodeURIComponent(hash)}/terminate`, {}),
+
+  terminateAllOtherSessions: () =>
+    postJson<{ ok: true }>("/api/settings/sessions/terminate-others", {}),
+
+  getBlocked: () => get<{ users: BlockedUser[] }>("/api/settings/blocked"),
+
+  unblock: (peerId: string) =>
+    postJson<{ ok: true }>(`/api/settings/blocked/${encodeURIComponent(peerId)}/unblock`, {}),
+
+  get2FA: () => get<TwoFAStatus>("/api/settings/2fa"),
+};
+
+// ---------------------------------------------------------------------------
 // Admin API
 // ---------------------------------------------------------------------------
 

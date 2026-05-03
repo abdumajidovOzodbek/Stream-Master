@@ -6,6 +6,7 @@ import authRouter from "../server/auth";
 import adminRouter from "../server/admin";
 import updatesRouter from "../server/updates";
 import eventsRouter from "../server/events";
+import settingsRouter from "../server/settings";
 import { sessionMiddleware } from "../middlewares/session";
 
 const router: IRouter = Router();
@@ -18,5 +19,6 @@ router.use(videosRouter);
 router.use(chatsRouter);
 router.use(adminRouter);
 router.use(updatesRouter);
+router.use(settingsRouter);
 
 export default router;
