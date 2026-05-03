@@ -246,6 +246,9 @@ export const api = {
   qrCancel: () => postJson<{ ok: true }>("/api/auth/qr/cancel", {}),
 
   getSessionId: () => getSessionId(),
+
+  chatStats: (chatId: string, limit = 500) =>
+    get<ChatStats>(`/api/stats/${encodeURIComponent(chatId)}?limit=${limit}`),
 };
 
 // ---------------------------------------------------------------------------
@@ -290,6 +293,34 @@ export interface BlockedUser {
   id: string;
   name: string;
   username: string | null;
+}
+
+export interface ChatStats {
+  totalMessages: number;
+  dateRange: { first: number; last: number } | null;
+  participants: {
+    id: string;
+    name: string;
+    count: number;
+    percentage: number;
+    avgLength: number;
+  }[];
+  hourly: number[];
+  weekday: number[];
+  mediaTypes: {
+    text: number;
+    photos: number;
+    videos: number;
+    voice: number;
+    stickers: number;
+    files: number;
+    other: number;
+  };
+  topWords: { word: string; count: number }[];
+  averageMessageLength: number;
+  mostActiveDay: string | null;
+  mostActiveDayCount: number;
+  analyzedCount: number;
 }
 
 export interface TwoFAStatus {

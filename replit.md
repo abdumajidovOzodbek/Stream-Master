@@ -101,3 +101,10 @@ Each browser visitor gets their own independent Telegram session. Sessions are i
 - Shared media panel: Photos / Videos / Files tabs.
 - In-chat message search: debounced via `/api/search`, click to scroll-and-highlight.
 - Stealth mode: suppresses `markAsRead` calls so messages stay unread on Telegram's servers.
+- Chat Analytics panel: BarChart2 icon in header opens a side panel (w-72) with: summary cards (total messages, avg length, first message date, most active day), top-participants bar list, hourly/weekday activity Recharts bar charts, message-type breakdown segmented bar, and a top-words word cloud. Backed by `GET /api/stats/:chatId?limit=500` (max 1000). Mutually exclusive with the shared-media panel.
+
+### Key files — Chat Analytics
+- `artifacts/api-server/src/telegram/stats.ts` — `getChatStats()`: resolves entity, fetches up to 1000 messages, computes all stats
+- `artifacts/api-server/src/server/stats.ts` — `GET /api/stats/:chatId` route
+- `artifacts/viewer/src/components/ChatStats.tsx` — analytics side panel (Recharts)
+- `artifacts/viewer/src/lib/api.ts` — `ChatStats` interface + `api.chatStats()` method

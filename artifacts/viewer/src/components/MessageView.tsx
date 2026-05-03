@@ -20,6 +20,7 @@ import { PhotoLightbox } from "./PhotoLightbox";
 import { MessageContextMenu } from "./MessageContextMenu";
 import { UserProfileCard } from "./UserProfileCard";
 import { SharedMediaPanel } from "./SharedMediaPanel";
+import { ChatStats } from "./ChatStats";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,7 @@ import {
   Smile,
   ArrowLeft,
   MessageSquare,
+  BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPresence, summarizeReply } from "@/lib/format";
@@ -1080,6 +1082,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showSharedMedia, setShowSharedMedia] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
   const [typingNames, setTypingNames] = useState<string[]>(() => getTypingNames(dialog.id));
 
@@ -1102,6 +1105,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     setHighlightId(null);
     setShowSearch(false);
     setShowSharedMedia(false);
+    setShowStats(false);
     didInitialScroll.current = false;
     prevScrollHeight.current = null;
     // Seed typing names for the newly opened chat, then subscribe
@@ -1226,10 +1230,19 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
               variant="ghost"
               size="icon"
               title="Shared media"
-              onClick={() => setShowSharedMedia((v) => !v)}
+              onClick={() => { setShowSharedMedia((v) => !v); setShowStats(false); }}
               className={cn("h-11 w-11", showSharedMedia && "bg-primary/10 text-primary")}
             >
               <Images className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Chat analytics"
+              onClick={() => { setShowStats((v) => !v); setShowSharedMedia(false); }}
+              className={cn("h-11 w-11", showStats && "bg-primary/10 text-primary")}
+            >
+              <BarChart2 className="h-4 w-4" />
             </Button>
             {dialog.username && (
               <Button asChild variant="ghost" size="icon" className="hidden sm:flex h-11 w-11">
@@ -1376,6 +1389,14 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           dialog={dialog}
           onClose={() => setShowSharedMedia(false)}
           onOpenLightbox={setLightbox}
+        />
+      )}
+
+      {/* Chat analytics side panel */}
+      {showStats && (
+        <ChatStats
+          dialog={dialog}
+          onClose={() => setShowStats(false)}
         />
       )}
 
