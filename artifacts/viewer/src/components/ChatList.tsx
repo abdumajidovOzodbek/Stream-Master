@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, Search, BadgeCheck, Bot, Pin, Globe } from "lucide-react";
+import { Loader2, Search, BadgeCheck, Bot, Pin, Globe, Archive, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 
@@ -275,11 +275,80 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
               </ul>
             </>
           )}
+
+          {/* ---- Archived chats section (only when not searching) ---- */}
+          {!showGlobalSection && <ArchivedSection selectedId={selectedId} onSelect={onSelect} />}
         </ScrollArea>
       </div>
     );
   },
 );
+
+function ArchivedSection({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string | null;
+  onSelect: (d: Dialog) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["dialogs-archived"],
+    queryFn: () => api.archivedDialogs(100),
+    staleTime: 30_000,
+    enabled: expanded,
+  });
+  const archived = data?.dialogs ?? [];
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="flex w-full items-center gap-2 px-5 py-2.5 text-left text-[12px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+      >
+        <Archive className="h-3.5 w-3.5" />
+        Archived chats
+        <ChevronDown className="ml-auto h-3 w-3" />
+      </button>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        className="flex w-full items-center gap-2 px-5 py-2.5 text-left text-[12px] font-semibold text-muted-foreground/70 hover:text-muted-foreground transition-colors border-t"
+      >
+        <Archive className="h-3.5 w-3.5" />
+        Archived chats
+        <ChevronDown className="ml-auto h-3 w-3 rotate-180" />
+      </button>
+      {isLoading && (
+        <div className="flex justify-center py-3">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {error && (
+        <div className="mx-3 my-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+          {(error as Error).message}
+        </div>
+      )}
+      {!isLoading && archived.length === 0 && !error && (
+        <div className="py-4 text-center text-xs text-muted-foreground">No archived chats</div>
+      )}
+      <ul>
+        {archived.map((d) => (
+          <ChatRow
+            key={`archived-${d.type}-${d.id}`}
+            d={d}
+            selected={d.id === selectedId}
+            onSelect={onSelect}
+          />
+        ))}
+      </ul>
+    </>
+  );
+}
 
 function ChatRow({
   d,

@@ -17,6 +17,19 @@ import {
   markChatRead,
   setMessageReaction,
   resolveEntityPublic,
+  editMessage,
+  deleteMessages,
+  forwardMessages,
+  pinMessage,
+  getPinnedMessages,
+  voteInPoll,
+  globalSearchMessages,
+  listArchivedDialogs,
+  getMessageIdNearDate,
+  muteChatNotifications,
+  joinChat,
+  leaveChat,
+  getBotCommands,
 } from "../telegram/chats";
 import { streamRangedResponse } from "../lib/range";
 
@@ -354,6 +367,241 @@ router.get("/media/:chatId/:msgId", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Media not streamable" });
   } catch (err) {
     handleError(req, res, err, "Failed to fetch media");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Edit message
+// ---------------------------------------------------------------------------
+
+router.put("/messages/:chatId/:msgId", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const msgRaw = req.params["msgId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
+  if (!chatId || !Number.isFinite(msgId)) { res.status(400).json({ error: "Invalid chatId or msgId" }); return; }
+  const body = (req.body ?? {}) as { text?: string };
+  if (!body.text?.trim()) { res.status(400).json({ error: "text is required" }); return; }
+  try {
+    res.json(await editMessage(client, chatId, msgId, body.text.trim()));
+  } catch (err) {
+    handleError(req, res, err, "Failed to edit message");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Delete message(s)
+// ---------------------------------------------------------------------------
+
+router.delete("/messages/:chatId/:msgId", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const msgRaw = req.params["msgId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
+  if (!chatId || !Number.isFinite(msgId)) { res.status(400).json({ error: "Invalid chatId or msgId" }); return; }
+  const revoke = req.query["revoke"] !== "0";
+  try {
+    res.json(await deleteMessages(client, chatId, [msgId], revoke));
+  } catch (err) {
+    handleError(req, res, err, "Failed to delete message");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Forward messages
+// ---------------------------------------------------------------------------
+
+router.post("/messages/forward", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const body = (req.body ?? {}) as { fromChatId?: string; toChatId?: string; msgIds?: number[] };
+  const { fromChatId, toChatId, msgIds } = body;
+  if (!fromChatId || !toChatId || !Array.isArray(msgIds) || msgIds.length === 0) {
+    res.status(400).json({ error: "fromChatId, toChatId, msgIds are required" }); return;
+  }
+  try {
+    res.json(await forwardMessages(client, fromChatId, toChatId, msgIds));
+  } catch (err) {
+    handleError(req, res, err, "Failed to forward messages");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Pin / Unpin message
+// ---------------------------------------------------------------------------
+
+router.post("/messages/:chatId/:msgId/pin", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const msgRaw = req.params["msgId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
+  if (!chatId || !Number.isFinite(msgId)) { res.status(400).json({ error: "Invalid chatId or msgId" }); return; }
+  const body = (req.body ?? {}) as { unpin?: boolean };
+  try {
+    res.json(await pinMessage(client, chatId, msgId, !!body.unpin));
+  } catch (err) {
+    handleError(req, res, err, "Failed to pin/unpin message");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Pinned messages for a chat
+// ---------------------------------------------------------------------------
+
+router.get("/chats/:chatId/pinned", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  try {
+    res.json(await getPinnedMessages(client, chatId));
+  } catch (err) {
+    handleError(req, res, err, "Failed to fetch pinned messages");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Poll vote
+// ---------------------------------------------------------------------------
+
+router.post("/messages/:chatId/:msgId/vote", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const msgRaw = req.params["msgId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const msgId = Number((Array.isArray(msgRaw) ? msgRaw[0] : msgRaw) ?? "");
+  if (!chatId || !Number.isFinite(msgId)) { res.status(400).json({ error: "Invalid chatId or msgId" }); return; }
+  const body = (req.body ?? {}) as { optionIndex?: number };
+  if (typeof body.optionIndex !== "number") { res.status(400).json({ error: "optionIndex is required" }); return; }
+  try {
+    res.json(await voteInPoll(client, chatId, msgId, body.optionIndex));
+  } catch (err) {
+    handleError(req, res, err, "Failed to vote in poll");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Global search
+// ---------------------------------------------------------------------------
+
+router.get("/search/global", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const q = ((req.query["q"] as string | undefined) ?? "").trim();
+  if (!q) { res.status(400).json({ error: "Missing query param: q" }); return; }
+  const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 50);
+  try {
+    res.json(await globalSearchMessages(client, q, limit));
+  } catch (err) {
+    handleError(req, res, err, "Failed to global search");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Archived dialogs
+// ---------------------------------------------------------------------------
+
+router.get("/dialogs/archived", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const limit = Math.min(Number(req.query["limit"] ?? 100) || 100, 300);
+  try {
+    const dialogs = await listArchivedDialogs(client, limit);
+    res.json({ count: dialogs.length, dialogs });
+  } catch (err) {
+    handleError(req, res, err, "Failed to fetch archived dialogs");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Jump to date — get closest msg ID
+// ---------------------------------------------------------------------------
+
+router.get("/messages/:chatId/near-date", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  const ts = Number(req.query["ts"] ?? "");
+  if (!chatId || !Number.isFinite(ts)) { res.status(400).json({ error: "chatId and ts are required" }); return; }
+  try {
+    const msgId = await getMessageIdNearDate(client, chatId, ts);
+    res.json({ msgId });
+  } catch (err) {
+    handleError(req, res, err, "Failed to get message near date");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Mute / unmute chat
+// ---------------------------------------------------------------------------
+
+router.post("/chats/:chatId/mute", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  const body = (req.body ?? {}) as { mute?: boolean };
+  try {
+    res.json(await muteChatNotifications(client, chatId, body.mute !== false));
+  } catch (err) {
+    handleError(req, res, err, "Failed to mute/unmute chat");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Join / leave chat
+// ---------------------------------------------------------------------------
+
+router.post("/chats/:chatId/join", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  try {
+    res.json(await joinChat(client, chatId));
+  } catch (err) {
+    handleError(req, res, err, "Failed to join chat");
+  }
+});
+
+router.post("/chats/:chatId/leave", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  try {
+    res.json(await leaveChat(client, chatId));
+  } catch (err) {
+    handleError(req, res, err, "Failed to leave chat");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Bot commands
+// ---------------------------------------------------------------------------
+
+router.get("/chats/:chatId/commands", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  try {
+    res.json(await getBotCommands(client, chatId));
+  } catch (err) {
+    handleError(req, res, err, "Failed to get bot commands");
   }
 });
 

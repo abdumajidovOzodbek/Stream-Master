@@ -13,7 +13,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api, type Dialog, type Message, type MessageMedia, type Reaction } from "@/lib/api";
+import { api, type Dialog, type Message, type MessageMedia, type Reaction, type PollInfo, type BotCommand } from "@/lib/api";
 import { ChatAvatar, senderTextColor } from "./Avatar";
 import { Composer } from "./Composer";
 import { PhotoLightbox } from "./PhotoLightbox";
@@ -51,7 +51,25 @@ import {
   ArrowLeft,
   MessageSquare,
   BarChart2,
+  Trash2,
+  Pin,
+  PinOff,
+  Terminal,
+  CalendarDays,
+  UserPlus,
+  UserMinus,
+  Volume2,
+  VolumeX,
+  AlertTriangle,
+  ChevronDown,
 } from "lucide-react";
+import {
+  Dialog as UiDialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatPresence, summarizeReply } from "@/lib/format";
 import { onTypingChange, getTypingNames } from "@/lib/typingStore";
@@ -529,6 +547,119 @@ function MediaBlock({
 }
 
 // ---------------------------------------------------------------------------
+// Poll
+// ---------------------------------------------------------------------------
+
+function PollBlock({ poll, chatId, msgId, out }: { poll: PollInfo; chatId: string; msgId: number; out: boolean }) {
+  const qc = useQueryClient();
+  const vote = useMutation({
+    mutationFn: (optionIndex: number) => api.votePoll(chatId, msgId, optionIndex),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["messages"] }); },
+  });
+  const totalVoters = poll.totalVoters || 1;
+  const hasVoted = poll.options.some((o) => o.chosen);
+  const maxVoters = Math.max(...poll.options.map((o) => o.voters), 1);
+
+  return (
+    <div className={cn("rounded-xl p-3 space-y-2.5", out ? "bg-white/10" : "bg-muted/60")}>
+      <div className={cn("text-sm font-semibold leading-snug", out ? "text-primary-foreground" : "text-foreground")}>
+        {poll.question}
+      </div>
+      {poll.quiz && (
+        <div className={cn("text-[11px] font-medium", out ? "text-primary-foreground/60" : "text-muted-foreground")}>
+          Quiz
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {poll.options.map((opt, i) => {
+          const pct = hasVoted ? Math.round((opt.voters / totalVoters) * 100) : 0;
+          const isLeading = opt.voters === maxVoters && opt.voters > 0;
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => { if (!poll.closed && !hasVoted) vote.mutate(i); }}
+              disabled={poll.closed || hasVoted || vote.isPending}
+              className={cn(
+                "relative w-full overflow-hidden rounded-lg px-3 py-2 text-left transition-colors",
+                poll.closed || hasVoted ? "cursor-default" : "hover:bg-primary/10 active:bg-primary/15",
+                opt.chosen
+                  ? out ? "bg-white/20 ring-1 ring-white/40" : "bg-primary/15 ring-1 ring-primary/30"
+                  : out ? "bg-white/10" : "bg-background/60",
+              )}
+            >
+              {hasVoted && (
+                <div
+                  className={cn("absolute inset-y-0 left-0 rounded-lg transition-all", out ? "bg-white/15" : "bg-primary/10")}
+                  style={{ width: `${pct}%` }}
+                />
+              )}
+              <div className="relative flex items-center justify-between gap-2">
+                <span className={cn("text-[13px]", out ? "text-primary-foreground" : "text-foreground")}>
+                  {opt.text}
+                </span>
+                {hasVoted && (
+                  <span className={cn("shrink-0 text-[11px] font-medium", isLeading ? (out ? "text-white" : "text-primary") : out ? "text-primary-foreground/60" : "text-muted-foreground")}>
+                    {pct}%
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div className={cn("text-[11px]", out ? "text-primary-foreground/60" : "text-muted-foreground")}>
+        {poll.totalVoters} vote{poll.totalVoters !== 1 ? "s" : ""}
+        {poll.closed && " · closed"}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Album (media grid for grouped messages)
+// ---------------------------------------------------------------------------
+
+function AlbumGrid({
+  msgs, out, onOpenLightbox,
+}: {
+  msgs: Message[]; out: boolean; onOpenLightbox: (url: string) => void;
+}) {
+  const photos = msgs.filter((m) => m.media?.kind === "photo" || m.media?.kind === "video");
+  if (photos.length === 0) return null;
+  const cols = photos.length <= 2 ? photos.length : Math.min(3, Math.ceil(Math.sqrt(photos.length)));
+  return (
+    <div
+      className="grid gap-0.5 overflow-hidden rounded-xl"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, maxWidth: 280 }}
+    >
+      {photos.map((m) => {
+        if (m.media?.kind === "photo") {
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onOpenLightbox((m.media as Extract<MessageMedia, { kind: "photo" }>).url)}
+              className="aspect-square overflow-hidden bg-black/10 hover:opacity-90 transition-opacity"
+            >
+              <img src={(m.media as { url: string }).url} alt="Album photo" className="h-full w-full object-cover" />
+            </button>
+          );
+        }
+        if (m.media?.kind === "video") {
+          return (
+            <div key={m.id} className="aspect-square overflow-hidden bg-black/30 relative flex items-center justify-center">
+              <Play className="h-8 w-8 text-white/80 drop-shadow" />
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Reply preview
 // ---------------------------------------------------------------------------
 
@@ -739,7 +870,8 @@ function OgCard({ url, out }: { url: string; out: boolean }) {
 
 function MessageBubble({
   msg, showAvatar, showName, dialog, onReply, onJump, onOpenLightbox,
-  highlight, registerRef, onAvatarClick,
+  highlight, registerRef, onAvatarClick, onEdit, onDelete, onForward, onPin,
+  albumPeers,
 }: {
   msg: Message;
   showAvatar: boolean;
@@ -751,6 +883,11 @@ function MessageBubble({
   highlight: boolean;
   registerRef: (id: number, el: HTMLDivElement | null) => void;
   onAvatarClick: (senderId: string) => void;
+  onEdit: (m: Message) => void;
+  onDelete: (m: Message) => void;
+  onForward: (m: Message) => void;
+  onPin: (m: Message) => void;
+  albumPeers: Message[];
 }) {
   const out = msg.out;
   const isChannel = dialog.type === "channel";
@@ -792,8 +929,11 @@ function MessageBubble({
     out ? "text-primary-foreground/75" : "text-muted-foreground/90",
   );
 
+  const isAlbumLeader = msg.groupedId != null && albumPeers.length > 1 && albumPeers[0]?.id === msg.id;
+  const isAlbumFollower = msg.groupedId != null && albumPeers.length > 1 && albumPeers[0]?.id !== msg.id;
+
   return (
-    <MessageContextMenu msg={msg} dialog={dialog} onReply={onReply}>
+    <MessageContextMenu msg={msg} dialog={dialog} onReply={onReply} onEdit={onEdit} onDelete={onDelete} onForward={onForward} onPin={onPin}>
       <div
         ref={(el) => registerRef(msg.id, el)}
         className={cn(
@@ -880,8 +1020,22 @@ function MessageBubble({
               <ReplyPreviewBlock reply={msg.replyTo} out={out} onJump={onJump} />
             )}
 
-            {/* Media */}
-            {msg.media && (
+            {/* Album grid — only on album leader, shows all grouped messages' photos/videos */}
+            {isAlbumLeader && (
+              <div className="mb-1">
+                <AlbumGrid msgs={albumPeers} out={out} onOpenLightbox={onOpenLightbox} />
+              </div>
+            )}
+
+            {/* Poll */}
+            {msg.poll && !isAlbumFollower && (
+              <div className="mb-1">
+                <PollBlock poll={msg.poll} chatId={dialog.id} msgId={msg.id} out={out} />
+              </div>
+            )}
+
+            {/* Media — skip for album followers (they're shown in leader's AlbumGrid) */}
+            {msg.media && !isAlbumLeader && !isAlbumFollower && (
               <div className={cn("mb-1", !msg.text && "mb-0")}>
                 <MediaBlock media={msg.media} out={out} onOpenLightbox={onOpenLightbox} />
               </div>
@@ -1049,6 +1203,195 @@ function SearchPanel({
 
 
 // ---------------------------------------------------------------------------
+// Delete confirm dialog
+// ---------------------------------------------------------------------------
+
+function DeleteConfirmDialog({
+  msg, chatId, open, onClose,
+}: {
+  msg: Message | null; chatId: string; open: boolean; onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => api.deleteMessage(chatId, msg!.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["messages", chatId] });
+      onClose();
+    },
+  });
+  return (
+    <UiDialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" /> Delete message?
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          This action cannot be undone. The message will be deleted for everyone.
+        </p>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={del.isPending}>Cancel</Button>
+          <Button variant="destructive" onClick={() => del.mutate()} disabled={del.isPending}>
+            {del.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </UiDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forward dialog
+// ---------------------------------------------------------------------------
+
+function ForwardDialog({
+  msg, fromChatId, open, onClose,
+}: {
+  msg: Message | null; fromChatId: string; open: boolean; onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["dialogs"],
+    queryFn: () => api.dialogs(100),
+    staleTime: 30_000,
+  });
+  const forward = useMutation({
+    mutationFn: (toChatId: string) => api.forwardMessage(fromChatId, toChatId, [msg!.id]),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["dialogs"] });
+      onClose();
+    },
+  });
+  const dialogs = (data?.dialogs ?? []).filter(
+    (d) => d.title.toLowerCase().includes(search.toLowerCase()),
+  );
+  return (
+    <UiDialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Forward className="h-5 w-5" /> Forward message
+          </DialogTitle>
+        </DialogHeader>
+        <Input
+          placeholder="Search chats…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="mb-1"
+          autoFocus
+        />
+        <div className="max-h-64 overflow-y-auto space-y-0.5 -mx-1">
+          {dialogs.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => forward.mutate(d.id)}
+              disabled={forward.isPending}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted/60 transition-colors"
+            >
+              <ChatAvatar peerId={d.id} title={d.title} hasPhoto={d.hasPhoto} size={36} />
+              <span className="truncate text-sm">{d.title}</span>
+              {forward.isPending && <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />}
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </UiDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bot command panel
+// ---------------------------------------------------------------------------
+
+function BotCommandPanel({
+  chatId, onCommand, onClose,
+}: {
+  chatId: string; onCommand: (cmd: string) => void; onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["bot-commands", chatId],
+    queryFn: () => api.botCommands(chatId),
+    staleTime: 60_000,
+  });
+  const commands = data ?? [];
+  return (
+    <div className="border-t bg-card/90 backdrop-blur-sm">
+      <div className="flex items-center justify-between px-3 py-2 border-b">
+        <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+          <Terminal className="h-3.5 w-3.5" /> Bot Commands
+        </span>
+        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}
+      {!isLoading && commands.length === 0 && (
+        <p className="py-3 text-center text-xs text-muted-foreground">No commands available</p>
+      )}
+      <div className="max-h-48 overflow-y-auto divide-y">
+        {commands.map((cmd: BotCommand) => (
+          <button
+            key={cmd.command}
+            type="button"
+            onClick={() => { onCommand(`/${cmd.command}`); onClose(); }}
+            className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+          >
+            <span className="shrink-0 font-mono text-sm text-primary">/{cmd.command}</span>
+            <span className="truncate text-xs text-muted-foreground">{cmd.description}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pinned message banner
+// ---------------------------------------------------------------------------
+
+function PinnedBanner({
+  chatId, onJump,
+}: {
+  chatId: string; onJump: (id: number) => void;
+}) {
+  const [visible, setVisible] = useState(true);
+  const { data } = useQuery({
+    queryKey: ["pinned", chatId],
+    queryFn: () => api.pinnedMessages(chatId),
+    staleTime: 60_000,
+  });
+  const pinned = data ?? [];
+  if (!visible || pinned.length === 0) return null;
+  const latest = pinned[0]!;
+  return (
+    <div className="border-b bg-amber-50/80 dark:bg-amber-950/30 px-3 py-2 flex items-center gap-2 backdrop-blur-sm">
+      <Pin className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+      <button
+        type="button"
+        onClick={() => onJump(latest.id)}
+        className="min-w-0 flex-1 text-left"
+      >
+        <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Pinned message</div>
+        <div className="truncate text-xs text-amber-700/80 dark:text-amber-300/80">
+          {latest.text || (latest.media ? "Media" : "Message")}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => setVisible(false)}
+        className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main MessageView
 // ---------------------------------------------------------------------------
 
@@ -1086,6 +1429,22 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
   const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
   const [typingNames, setTypingNames] = useState<string[]>(() => getTypingNames(dialog.id));
 
+  // Edit / Delete / Forward / Pin
+  const [editMsg, setEditMsg] = useState<Message | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
+  const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
+
+  // Jump to date
+  const [showJumpDate, setShowJumpDate] = useState(false);
+  const [jumpDate, setJumpDate] = useState("");
+
+  // Bot command panel
+  const [showBotCommands, setShowBotCommands] = useState(false);
+  const [composerCommand, setComposerCommand] = useState<string | null>(null);
+
+  // Muted state (local UI toggle — reflects notification state)
+  const [muted, setMuted] = useState(false);
+
   // Keyboard: Ctrl+F to toggle search
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -1106,6 +1465,13 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     setShowSearch(false);
     setShowSharedMedia(false);
     setShowStats(false);
+    setEditMsg(null);
+    setDeleteTarget(null);
+    setForwardTarget(null);
+    setShowJumpDate(false);
+    setJumpDate("");
+    setShowBotCommands(false);
+    setComposerCommand(null);
     didInitialScroll.current = false;
     prevScrollHeight.current = null;
     // Seed typing names for the newly opened chat, then subscribe
@@ -1117,6 +1483,61 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     () => (data?.pages ?? []).flatMap((p) => p.messages).slice().reverse(),
     [data],
   );
+
+  // Build album groups: map from groupedId → sorted Message[]
+  const albumGroups = useMemo(() => {
+    const groups = new Map<string, Message[]>();
+    for (const m of allMessages) {
+      if (!m.groupedId) continue;
+      const arr = groups.get(m.groupedId) ?? [];
+      arr.push(m);
+      groups.set(m.groupedId, arr);
+    }
+    return groups;
+  }, [allMessages]);
+
+  // Pin handler
+  const pinMut = useMutation({
+    mutationFn: (m: Message) => api.pinMessage(dialog.id, m.id, m.pinned),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["messages", dialog.id] });
+      void qc.invalidateQueries({ queryKey: ["pinned", dialog.id] });
+    },
+  });
+
+  // Jump to date handler
+  const jumpToDateMut = useMutation({
+    mutationFn: (dateStr: string) => {
+      const ts = Math.floor(new Date(dateStr).getTime() / 1000);
+      return api.messageNearDate(dialog.id, ts);
+    },
+    onSuccess: (result) => {
+      setShowJumpDate(false);
+      setJumpDate("");
+      if (result.msgId) {
+        const existing = messageRefs.current.get(result.msgId);
+        if (existing) {
+          handleJump(result.msgId);
+        }
+      }
+    },
+  });
+
+  // Mute handler
+  const muteMut = useMutation({
+    mutationFn: (m: boolean) => api.muteChat(dialog.id, m),
+    onSuccess: (_, m) => setMuted(m),
+  });
+
+  // Join / Leave handlers
+  const joinMut = useMutation({
+    mutationFn: () => api.joinChat(dialog.id),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dialogs"] }); },
+  });
+  const leaveMut = useMutation({
+    mutationFn: () => api.leaveChat(dialog.id),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dialogs"] }); },
+  });
 
   useLayoutEffect(() => {
     const v = viewportRef.current;
@@ -1217,6 +1638,68 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
 
           {/* Header actions — 44px touch targets */}
           <div className="flex shrink-0 items-center gap-0.5">
+            {/* Jump to date */}
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Jump to date"
+              onClick={() => setShowJumpDate((v) => !v)}
+              className={cn("hidden sm:flex h-11 w-11", showJumpDate && "bg-primary/10 text-primary")}
+            >
+              <CalendarDays className="h-4 w-4" />
+            </Button>
+
+            {/* Mute / unmute */}
+            <Button
+              variant="ghost"
+              size="icon"
+              title={muted ? "Unmute notifications" : "Mute notifications"}
+              onClick={() => muteMut.mutate(!muted)}
+              disabled={muteMut.isPending}
+              className={cn("hidden sm:flex h-11 w-11", muted && "text-muted-foreground/50")}
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </Button>
+
+            {/* Join / Leave for groups/channels */}
+            {(dialog.type === "chat" || dialog.type === "channel") && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Join"
+                  onClick={() => joinMut.mutate()}
+                  disabled={joinMut.isPending || leaveMut.isPending}
+                  className="hidden sm:flex h-11 w-11 text-emerald-500 hover:text-emerald-600"
+                >
+                  {joinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Leave"
+                  onClick={() => leaveMut.mutate()}
+                  disabled={joinMut.isPending || leaveMut.isPending}
+                  className="hidden sm:flex h-11 w-11 text-destructive hover:text-destructive/80"
+                >
+                  {leaveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+                </Button>
+              </>
+            )}
+
+            {/* Bot commands (show only for bots or when chat has bot) */}
+            {(dialog.isBot || dialog.type === "chat") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Bot commands"
+                onClick={() => setShowBotCommands((v) => !v)}
+                className={cn("hidden sm:flex h-11 w-11", showBotCommands && "bg-primary/10 text-primary")}
+              >
+                <Terminal className="h-4 w-4" />
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="icon"
@@ -1255,12 +1738,48 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           </div>
         </div>
 
+        {/* Jump to date panel */}
+        {showJumpDate && (
+          <div className="border-b bg-card/80 px-4 py-2.5 flex items-center gap-3 backdrop-blur-sm">
+            <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input
+              type="date"
+              value={jumpDate}
+              onChange={(e) => setJumpDate(e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
+              className="flex-1 bg-transparent text-sm outline-none"
+            />
+            <Button
+              size="sm"
+              onClick={() => { if (jumpDate) jumpToDateMut.mutate(jumpDate); }}
+              disabled={!jumpDate || jumpToDateMut.isPending}
+            >
+              {jumpToDateMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Jump"}
+            </Button>
+            <button type="button" onClick={() => { setShowJumpDate(false); setJumpDate(""); }} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Pinned message banner */}
+        <PinnedBanner chatId={dialog.id} onJump={handleJump} />
+
         {/* Search panel */}
         {showSearch && (
           <SearchPanel
             dialog={dialog}
             onJump={handleJump}
             onClose={() => setShowSearch(false)}
+          />
+        )}
+
+        {/* Bot command panel */}
+        {showBotCommands && (
+          <BotCommandPanel
+            chatId={dialog.id}
+            onCommand={(cmd) => setComposerCommand(cmd)}
+            onClose={() => setShowBotCommands(false)}
           />
         )}
 
@@ -1341,15 +1860,20 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                   next && next.fromId === m.fromId && next.out === m.out;
                 const showAvatar = !sameAsNext;
 
+                // For album followers, only render the bubble but visually hidden — so
+                // they register their ref for jump-to but don't show duplicate content.
+                const albumPeers = m.groupedId ? (albumGroups.get(m.groupedId) ?? [m]) : [m];
+                const isAlbumFollower = m.groupedId != null && albumPeers.length > 1 && albumPeers[0]?.id !== m.id;
+
                 return (
                   <div
                     key={m.id}
                     className={cn(
                       "msg-row",
-                      i === 0 ? "mt-0" : sameAsPrev ? "mt-0.5" : "mt-2.5",
+                      isAlbumFollower ? "hidden" : (i === 0 ? "mt-0" : sameAsPrev ? "mt-0.5" : "mt-2.5"),
                     )}
                   >
-                    {showDate && (
+                    {!isAlbumFollower && showDate && (
                       <div className="my-4 flex justify-center">
                         <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
                           {formatDateLabel(m.date)}
@@ -1367,6 +1891,11 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                       highlight={highlightId === m.id}
                       registerRef={registerRef}
                       onAvatarClick={setProfilePeerId}
+                      onEdit={setEditMsg}
+                      onDelete={setDeleteTarget}
+                      onForward={setForwardTarget}
+                      onPin={(msg) => pinMut.mutate(msg)}
+                      albumPeers={albumPeers}
                     />
                   </div>
                 );
@@ -1380,6 +1909,10 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           chatType={dialog.type}
           replyTo={replyTo}
           onClearReply={() => setReplyTo(null)}
+          editMsg={editMsg}
+          onClearEdit={() => setEditMsg(null)}
+          injectedText={composerCommand}
+          onClearInjectedText={() => setComposerCommand(null)}
         />
       </div>
 
@@ -1409,6 +1942,22 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
         peerDialog={dialog.type === "user" && profilePeerId === dialog.id ? dialog : null}
         open={profilePeerId !== null}
         onClose={() => setProfilePeerId(null)}
+      />
+
+      {/* Delete confirm dialog */}
+      <DeleteConfirmDialog
+        msg={deleteTarget}
+        chatId={dialog.id}
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+      />
+
+      {/* Forward dialog */}
+      <ForwardDialog
+        msg={forwardTarget}
+        fromChatId={dialog.id}
+        open={forwardTarget !== null}
+        onClose={() => setForwardTarget(null)}
       />
     </div>
   );

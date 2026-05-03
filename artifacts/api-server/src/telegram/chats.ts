@@ -50,6 +50,21 @@ export interface ForwardInfo {
   date: number;
 }
 
+export interface PollOption {
+  text: string;
+  voters: number;
+  chosen: boolean;
+}
+
+export interface PollInfo {
+  question: string;
+  options: PollOption[];
+  totalVoters: number;
+  closed: boolean;
+  multipleChoice: boolean;
+  quiz: boolean;
+}
+
 export interface MessageEntry {
   id: number;
   date: number;
@@ -65,6 +80,9 @@ export interface MessageEntry {
   views: number | null;
   reactions: Reaction[];
   media: MessageMedia | null;
+  groupedId: string | null;
+  pinned: boolean;
+  poll: PollInfo | null;
 }
 
 export type MessageMedia =
@@ -277,6 +295,41 @@ function extractMessageMedia(msg: Api.Message, chatId: string): MessageMedia | n
   return { kind: "other", label: "Unsupported media" };
 }
 
+function extractPoll(msg: Api.Message): PollInfo | null {
+  const media = msg.media;
+  if (!(media instanceof Api.MessageMediaPoll)) return null;
+  const poll = media.poll;
+  const results = media.results;
+
+  const chosenIds = new Set<number>();
+  if (results.results) {
+    for (const r of results.results) {
+      if ((r as unknown as { chosen?: boolean }).chosen) {
+        chosenIds.add((r as unknown as { option: Buffer }).option[0] ?? -1);
+      }
+    }
+  }
+
+  const options: PollOption[] = poll.answers.map((ans, i) => {
+    const resRow = results.results?.[i];
+    return {
+      text: typeof ans.text === "string" ? ans.text : (ans.text as unknown as { text?: string })?.text ?? "",
+      voters: resRow ? (resRow as unknown as { voters?: number }).voters ?? 0 : 0,
+      chosen: resRow ? !!((resRow as unknown as { chosen?: boolean }).chosen) : false,
+    };
+  });
+
+  const rawQ = poll.question;
+  return {
+    question: typeof rawQ === "string" ? rawQ : (rawQ as unknown as { text?: string })?.text ?? "",
+    options,
+    totalVoters: results.totalVoters ?? 0,
+    closed: !!poll.closed,
+    multipleChoice: !!(poll as unknown as { multipleChoice?: boolean }).multipleChoice,
+    quiz: !!poll.quiz,
+  };
+}
+
 function fwdFromInfo(m: Api.Message): ForwardInfo | null {
   const f = m.fwdFrom;
   if (!f) return null;
@@ -308,6 +361,9 @@ function buildMessageEntry(
     m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId ?? null : null;
   const replyTo = replyToMsgId != null ? replyPreviews.get(replyToMsgId) ?? null : null;
 
+  const rawGroupedId = (m as unknown as { groupedId?: unknown }).groupedId;
+  const groupedId = rawGroupedId != null ? String(rawGroupedId) : null;
+
   return {
     id: m.id,
     date: m.date,
@@ -323,6 +379,9 @@ function buildMessageEntry(
     views: (m as unknown as { views?: number }).views ?? null,
     reactions: extractReactions(m),
     media: extractMessageMedia(m, resolvedId),
+    groupedId,
+    pinned: !!(m as unknown as { pinned?: boolean }).pinned,
+    poll: extractPoll(m),
   };
 }
 
@@ -746,6 +805,382 @@ export async function getDialogFolders(client: TelegramClient): Promise<{ id: nu
 // ---------------------------------------------------------------------------
 // Global contact / channel / bot search
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Global search (across all chats)
+// ---------------------------------------------------------------------------
+
+export async function globalSearchMessages(
+  client: TelegramClient,
+  query: string,
+  limit = 20,
+): Promise<{ chatId: string; messages: MessageEntry[] }[]> {
+  const result = await client.invoke(
+    new Api.messages.SearchGlobal({
+      q: query,
+      filter: new Api.InputMessagesFilterEmpty(),
+      minDate: 0,
+      maxDate: 0,
+      offsetRate: 0,
+      offsetPeer: new Api.InputPeerEmpty(),
+      offsetId: 0,
+      limit,
+    }),
+  );
+
+  const entityMap = new Map<string, unknown>();
+  const msgs = (result as unknown as { messages?: unknown[]; chats?: unknown[]; users?: unknown[] });
+  for (const c of msgs.chats ?? []) entityMap.set(bigToString((c as { id: unknown }).id), c);
+  for (const u of msgs.users ?? []) entityMap.set(bigToString((u as { id: unknown }).id), u);
+
+  const grouped = new Map<string, MessageEntry[]>();
+  const emptyMap = new Map<number, ReplyPreview>();
+
+  for (const raw of msgs.messages ?? []) {
+    const m = raw as Api.Message;
+    if (!m.id || !m.date) continue;
+    const peer = m.peerId;
+    let chatId = "";
+    if (peer instanceof Api.PeerUser) chatId = bigToString(peer.userId);
+    else if (peer instanceof Api.PeerChannel) chatId = bigToString(peer.channelId);
+    else if (peer instanceof Api.PeerChat) chatId = bigToString(peer.chatId);
+    if (!chatId) continue;
+    const entry = buildMessageEntry(m, chatId, emptyMap);
+    const arr = grouped.get(chatId) ?? [];
+    arr.push(entry);
+    grouped.set(chatId, arr);
+  }
+
+  return Array.from(grouped.entries()).map(([chatId, messages]) => ({ chatId, messages }));
+}
+
+// ---------------------------------------------------------------------------
+// Edit message
+// ---------------------------------------------------------------------------
+
+export async function editMessage(
+  client: TelegramClient,
+  chatId: string,
+  msgId: number,
+  text: string,
+): Promise<{ ok: true }> {
+  const { entity } = await resolveEntity(client, chatId);
+  await client.invoke(
+    new Api.messages.EditMessage({
+      peer: entity as unknown as Api.TypeInputPeer,
+      id: msgId,
+      message: text,
+    }),
+  );
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Delete messages
+// ---------------------------------------------------------------------------
+
+export async function deleteMessages(
+  client: TelegramClient,
+  chatId: string,
+  msgIds: number[],
+  revoke = true,
+): Promise<{ ok: true }> {
+  const { entity, type } = await resolveEntity(client, chatId);
+  if (type === "channel") {
+    await client.invoke(
+      new Api.channels.DeleteMessages({
+        channel: entity as unknown as Api.TypeInputChannel,
+        id: msgIds,
+      }),
+    );
+  } else {
+    await client.invoke(
+      new Api.messages.DeleteMessages({ id: msgIds, revoke }),
+    );
+  }
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Forward messages
+// ---------------------------------------------------------------------------
+
+export async function forwardMessages(
+  client: TelegramClient,
+  fromChatId: string,
+  toChatId: string,
+  msgIds: number[],
+): Promise<{ ok: true }> {
+  const { entity: fromEntity } = await resolveEntity(client, fromChatId);
+  const { entity: toEntity } = await resolveEntity(client, toChatId);
+  await client.invoke(
+    new Api.messages.ForwardMessages({
+      fromPeer: fromEntity as unknown as Api.TypeInputPeer,
+      toPeer: toEntity as unknown as Api.TypeInputPeer,
+      id: msgIds,
+      randomId: msgIds.map(() => bigInt(Math.floor(Math.random() * 1e15))),
+      dropAuthor: false,
+    }),
+  );
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Pin / Unpin message
+// ---------------------------------------------------------------------------
+
+export async function pinMessage(
+  client: TelegramClient,
+  chatId: string,
+  msgId: number,
+  unpin = false,
+): Promise<{ ok: true }> {
+  const { entity } = await resolveEntity(client, chatId);
+  await client.invoke(
+    new Api.messages.UpdatePinnedMessage({
+      peer: entity as unknown as Api.TypeInputPeer,
+      id: msgId,
+      unpin,
+      pmOneside: false,
+      silent: false,
+    }),
+  );
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Get pinned messages
+// ---------------------------------------------------------------------------
+
+export async function getPinnedMessages(
+  client: TelegramClient,
+  chatId: string,
+): Promise<MessageEntry[]> {
+  const { entity, id: resolvedId } = await resolveEntity(client, chatId);
+  const messages = await client.getMessages(entity, {
+    filter: new Api.InputMessagesFilterPinned(),
+    limit: 10,
+  });
+  const emptyMap = new Map<number, ReplyPreview>();
+  return messages.map((m) => buildMessageEntry(m, resolvedId, emptyMap));
+}
+
+// ---------------------------------------------------------------------------
+// Vote in poll
+// ---------------------------------------------------------------------------
+
+export async function voteInPoll(
+  client: TelegramClient,
+  chatId: string,
+  msgId: number,
+  optionIndex: number,
+): Promise<{ ok: true }> {
+  const { entity } = await resolveEntity(client, chatId);
+  const messages = await client.getMessages(entity, { ids: [msgId] });
+  const msg = messages[0];
+  if (!msg || !(msg.media instanceof Api.MessageMediaPoll)) {
+    throw new Error("Message is not a poll");
+  }
+  const option = msg.media.poll.answers[optionIndex];
+  if (!option) throw new Error("Invalid option index");
+  await client.invoke(
+    new Api.messages.SendVote({
+      peer: entity as unknown as Api.TypeInputPeer,
+      msgId,
+      options: [(option as unknown as { option: Buffer }).option],
+    }),
+  );
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Archived chats
+// ---------------------------------------------------------------------------
+
+export async function listArchivedDialogs(client: TelegramClient, limit = 100): Promise<DialogEntry[]> {
+  const result = await client.invoke(
+    new Api.messages.GetDialogs({
+      offsetDate: 0,
+      offsetId: 0,
+      offsetPeer: new Api.InputPeerEmpty(),
+      limit,
+      hash: bigInt(0),
+      folderId: 1,
+    }),
+  );
+
+  const raw = result as unknown as { dialogs?: unknown[]; chats?: unknown[]; users?: unknown[]; messages?: unknown[] };
+  const entityMap = new Map<string, unknown>();
+  for (const c of raw.chats ?? []) entityMap.set(bigToString((c as { id: unknown }).id), c);
+  for (const u of raw.users ?? []) entityMap.set(bigToString((u as { id: unknown }).id), u);
+
+  const msgMap = new Map<number, { text: string; date: number; out: boolean; id: number }>();
+  for (const m of raw.messages ?? []) {
+    const msg = m as Api.Message;
+    if (msg.id) {
+      msgMap.set(msg.id, { id: msg.id, text: summarizeMessageText(msg), date: msg.date, out: !!msg.out });
+    }
+  }
+
+  const out: DialogEntry[] = [];
+  for (const d of raw.dialogs ?? []) {
+    const dialog = d as unknown as { peer?: unknown; unreadCount?: number; pinned?: boolean; readInboxMaxId?: number; readOutboxMaxId?: number; topMessage?: number };
+    const peer = dialog.peer;
+    let entityId = "";
+    if (peer instanceof Api.PeerUser) entityId = bigToString(peer.userId);
+    else if (peer instanceof Api.PeerChannel) entityId = bigToString(peer.channelId);
+    else if (peer instanceof Api.PeerChat) entityId = bigToString(peer.chatId);
+    if (!entityId) continue;
+    const entity = entityMap.get(entityId);
+    if (!entity) continue;
+    const type = entityType(entity);
+    const lastMsg = dialog.topMessage ? msgMap.get(dialog.topMessage) ?? null : null;
+    const presence = entity instanceof Api.User && !entity.bot ? userPresence(entity) : null;
+    out.push({
+      id: bigToString((entity as { id: unknown }).id),
+      type,
+      title: entityTitle(entity),
+      username: (entity as { username?: string }).username ?? null,
+      unreadCount: dialog.unreadCount ?? 0,
+      isPinned: !!dialog.pinned,
+      isVerified: (entity as { verified?: boolean }).verified ?? false,
+      isBot: entity instanceof Api.User ? (entity.bot ?? false) : false,
+      hasPhoto: !!(entity as { photo?: unknown }).photo,
+      readInboxMaxId: dialog.readInboxMaxId ?? null,
+      readOutboxMaxId: dialog.readOutboxMaxId ?? null,
+      presence,
+      lastMessage: lastMsg,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Jump to date — find message closest to a timestamp
+// ---------------------------------------------------------------------------
+
+export async function getMessageIdNearDate(
+  client: TelegramClient,
+  chatId: string,
+  timestamp: number,
+): Promise<number | null> {
+  const { entity } = await resolveEntity(client, chatId);
+  try {
+    const result = await client.invoke(
+      new Api.messages.GetHistory({
+        peer: entity as unknown as Api.TypeInputPeer,
+        offsetDate: timestamp,
+        addOffset: 0,
+        limit: 1,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+        offsetId: 0,
+      }),
+    );
+    const msgs = (result as unknown as { messages?: unknown[] }).messages ?? [];
+    const first = msgs[0] as Api.Message | undefined;
+    return first?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mute / unmute notification for a chat
+// ---------------------------------------------------------------------------
+
+export async function muteChatNotifications(
+  client: TelegramClient,
+  chatId: string,
+  mute: boolean,
+): Promise<{ ok: true }> {
+  const { entity } = await resolveEntity(client, chatId);
+  const inputPeer = entity as unknown as Api.TypeInputPeer;
+  const settings = mute
+    ? new Api.InputPeerNotifySettings({ muteUntil: 2_000_000_000, showPreviews: true, silent: false })
+    : new Api.InputPeerNotifySettings({ muteUntil: 0, showPreviews: true, silent: false });
+  await client.invoke(
+    new Api.account.UpdateNotifySettings({
+      peer: new Api.InputNotifyPeer({ peer: inputPeer }),
+      settings,
+    }),
+  );
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Join / leave group or channel
+// ---------------------------------------------------------------------------
+
+export async function joinChat(client: TelegramClient, chatId: string): Promise<{ ok: true }> {
+  const { entity, type } = await resolveEntity(client, chatId);
+  if (type === "channel") {
+    await client.invoke(
+      new Api.channels.JoinChannel({ channel: entity as unknown as Api.TypeInputChannel }),
+    );
+  } else {
+    await client.invoke(
+      new Api.messages.AddChatUser({
+        chatId: bigInt(chatId),
+        userId: new Api.InputUserSelf(),
+        fwdLimit: 0,
+      }),
+    );
+  }
+  return { ok: true };
+}
+
+export async function leaveChat(client: TelegramClient, chatId: string): Promise<{ ok: true }> {
+  const { entity, type } = await resolveEntity(client, chatId);
+  if (type === "channel") {
+    await client.invoke(
+      new Api.channels.LeaveChannel({ channel: entity as unknown as Api.TypeInputChannel }),
+    );
+  } else {
+    await client.invoke(
+      new Api.messages.DeleteChatUser({
+        chatId: bigInt(chatId),
+        userId: new Api.InputUserSelf(),
+        revokeHistory: false,
+      }),
+    );
+  }
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Bot commands
+// ---------------------------------------------------------------------------
+
+export interface BotCommand {
+  command: string;
+  description: string;
+}
+
+export async function getBotCommands(
+  client: TelegramClient,
+  chatId: string,
+): Promise<BotCommand[]> {
+  const { entity, type } = await resolveEntity(client, chatId);
+  try {
+    let scope: Api.TypeBotCommandScope;
+    if (type === "channel" || type === "chat") {
+      scope = new Api.BotCommandScopePeer({ peer: entity as unknown as Api.TypeInputPeer });
+    } else {
+      scope = new Api.BotCommandScopePeer({ peer: entity as unknown as Api.TypeInputPeer });
+    }
+    const result = await client.invoke(
+      new Api.bots.GetBotCommands({ scope, langCode: "en" }),
+    );
+    return (result as unknown as Array<{ command: string; description: string }>).map((c) => ({
+      command: c.command,
+      description: c.description,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export async function searchContacts(client: TelegramClient, q: string, limit = 20): Promise<DialogEntry[]> {
   const result = await client.invoke(new Api.contacts.Search({ q, limit }));

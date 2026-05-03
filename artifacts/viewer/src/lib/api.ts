@@ -80,6 +80,26 @@ export interface ForwardInfo {
   date: number;
 }
 
+export interface PollOption {
+  text: string;
+  voters: number;
+  chosen: boolean;
+}
+
+export interface PollInfo {
+  question: string;
+  options: PollOption[];
+  totalVoters: number;
+  closed: boolean;
+  multipleChoice: boolean;
+  quiz: boolean;
+}
+
+export interface BotCommand {
+  command: string;
+  description: string;
+}
+
 export interface Message {
   id: number;
   date: number;
@@ -95,6 +115,9 @@ export interface Message {
   views: number | null;
   reactions: Reaction[];
   media: MessageMedia | null;
+  groupedId: string | null;
+  pinned: boolean;
+  poll: PollInfo | null;
 }
 
 export interface UserInfo {
@@ -249,6 +272,58 @@ export const api = {
 
   chatStats: (chatId: string, limit = 500) =>
     get<ChatStats>(`/api/stats/${encodeURIComponent(chatId)}?limit=${limit}`),
+
+  editMessage: (chatId: string, msgId: number, text: string) =>
+    fetch(`/api/messages/${encodeURIComponent(chatId)}/${msgId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
+      body: JSON.stringify({ text }),
+    }).then(async (r) => {
+      if (!r.ok) { const b = (await r.json().catch(() => ({}))) as { error?: string }; throw new Error(b.error ?? `HTTP ${r.status}`); }
+      return r.json() as Promise<{ ok: true }>;
+    }),
+
+  deleteMessage: (chatId: string, msgId: number) =>
+    fetch(`/api/messages/${encodeURIComponent(chatId)}/${msgId}`, {
+      method: "DELETE",
+      headers: sessionHeaders(),
+    }).then(async (r) => {
+      if (!r.ok) { const b = (await r.json().catch(() => ({}))) as { error?: string }; throw new Error(b.error ?? `HTTP ${r.status}`); }
+      return r.json() as Promise<{ ok: true }>;
+    }),
+
+  forwardMessage: (fromChatId: string, toChatId: string, msgIds: number[]) =>
+    postJson<{ ok: true }>("/api/messages/forward", { fromChatId, toChatId, msgIds }),
+
+  pinMessage: (chatId: string, msgId: number, unpin = false) =>
+    postJson<{ ok: true }>(`/api/messages/${encodeURIComponent(chatId)}/${msgId}/pin`, { unpin }),
+
+  pinnedMessages: (chatId: string) =>
+    get<Message[]>(`/api/chats/${encodeURIComponent(chatId)}/pinned`),
+
+  votePoll: (chatId: string, msgId: number, optionIndex: number) =>
+    postJson<{ ok: true }>(`/api/messages/${encodeURIComponent(chatId)}/${msgId}/vote`, { optionIndex }),
+
+  globalSearch: (q: string, limit = 20) =>
+    get<{ chatId: string; messages: Message[] }[]>(`/api/search/global?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  archivedDialogs: (limit = 100) =>
+    get<{ count: number; dialogs: Dialog[] }>(`/api/dialogs/archived?limit=${limit}`),
+
+  messageNearDate: (chatId: string, ts: number) =>
+    get<{ msgId: number | null }>(`/api/messages/${encodeURIComponent(chatId)}/near-date?ts=${ts}`),
+
+  muteChat: (chatId: string, mute: boolean) =>
+    postJson<{ ok: true }>(`/api/chats/${encodeURIComponent(chatId)}/mute`, { mute }),
+
+  joinChat: (chatId: string) =>
+    postJson<{ ok: true }>(`/api/chats/${encodeURIComponent(chatId)}/join`, {}),
+
+  leaveChat: (chatId: string) =>
+    postJson<{ ok: true }>(`/api/chats/${encodeURIComponent(chatId)}/leave`, {}),
+
+  botCommands: (chatId: string) =>
+    get<BotCommand[]>(`/api/chats/${encodeURIComponent(chatId)}/commands`),
 };
 
 // ---------------------------------------------------------------------------
