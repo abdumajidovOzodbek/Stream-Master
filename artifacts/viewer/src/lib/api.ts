@@ -1,4 +1,17 @@
-import { getSessionId } from "./session";
+const _SESSION_KEY = "tg_session_id";
+function getSessionId(): string {
+  try {
+    const stored = localStorage.getItem(_SESSION_KEY);
+    if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored)) {
+      return stored;
+    }
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(_SESSION_KEY, fresh);
+    return fresh;
+  } catch {
+    return "00000000-0000-0000-0000-000000000000";
+  }
+}
 
 export interface Me {
   id: string;
