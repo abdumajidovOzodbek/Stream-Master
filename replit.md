@@ -47,19 +47,21 @@ Each browser visitor gets their own independent Telegram session. Sessions are i
 - On first visit the browser generates a UUID (`crypto.randomUUID()`) saved to `localStorage` as `tg_session_id`.
 - Every API call sends an `X-Session-ID: <uuid>` header.
 - The Express session middleware (`src/middlewares/session.ts`) reads this header, looks up or creates a `TelegramClient` for that session, and attaches it to `req.telegramClient`.
-- Session strings (gramjs `StringSession`) are persisted in `artifacts/api-server/storage/sessions.json`, keyed by UUID.
+- Session strings (gramjs `StringSession`) are persisted in the PostgreSQL `sessions` table (via `@workspace/db`), keyed by UUID. An in-memory write-through cache avoids DB round-trips on every request.
 - Each user must log in with their own Telegram account via the standard phone-code-password flow.
 
 ### Key files
 
-- `artifacts/api-server/src/telegram/sessionStore.ts` — read/write `sessions.json`
+- `artifacts/api-server/src/telegram/sessionStore.ts` — PostgreSQL-backed session store (Drizzle ORM); in-memory write-through cache
 - `artifacts/api-server/src/telegram/clientManager.ts` — per-session `TelegramClient` cache + login helpers
 - `artifacts/api-server/src/middlewares/session.ts` — Express middleware
 - `artifacts/api-server/src/server/auth.ts` — per-session auth routes
-- `artifacts/api-server/src/server/admin.ts` — admin API (gated by `X-Admin-Secret` header)
+- `artifacts/api-server/src/server/admin.ts` — admin API (gated by `X-Admin-Secret` header; rate-limited verify endpoint)
+- `artifacts/api-server/src/server/events.ts` — SSE endpoint (`GET /api/events`) for real-time updates
 - `artifacts/viewer/src/lib/session.ts` — UUID management + impersonation helpers
 - `artifacts/viewer/src/lib/api.ts` — all fetch calls include `X-Session-ID`
 - `artifacts/viewer/src/pages/AdminPage.tsx` — admin UI at `/admin`
+- `lib/db/src/schema/index.ts` — Drizzle schema including the `sessions` table
 
 ### Admin panel (`/admin`)
 
@@ -87,7 +89,8 @@ Each browser visitor gets their own independent Telegram session. Sessions are i
 - Dark mode via `hooks/use-theme.ts`.
 - Filter tabs in `ChatList`: All · Unread · Groups · Channels · Bots.
 - Pinned chats section, total unread badge.
-- Dialog polling: 15 s refetchInterval.
+- Real-time updates: SSE connection to `GET /api/events` with 30 s polling fallback. Invalidates dialog/message caches on new messages.
+- Dialog polling: 30 s refetchInterval (SSE handles most updates).
 - Keyboard shortcuts: `Ctrl+K` search, `Ctrl+F` in-chat search, `Ctrl+L` stealth mode, `Ctrl+D` theme.
 - Desktop notifications when unread count rises while tab is unfocused.
 - Right-click context menu (Copy text, Reply, Copy link, Open in Telegram).

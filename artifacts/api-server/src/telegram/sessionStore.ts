@@ -1,10 +1,6 @@
-import fs from "node:fs";
-import fsp from "node:fs/promises";
-import path from "node:path";
 import { logger } from "../lib/logger";
-
-const STORAGE_DIR = path.resolve(process.cwd(), "storage");
-const SESSIONS_FILE = path.join(STORAGE_DIR, "sessions.json");
+import { db, sessionsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 export interface SessionRecord {
   sessionString: string;
@@ -15,86 +11,152 @@ export interface SessionRecord {
   lastSeen: number;
 }
 
-type SessionMap = Record<string, SessionRecord>;
-
 // ---------------------------------------------------------------------------
-// In-memory cache — loaded once at startup, kept in sync on every write.
-// This eliminates synchronous disk reads on every API call.
-// ---------------------------------------------------------------------------
-
-let _cache: SessionMap | null = null;
-
-function loadCache(): SessionMap {
-  try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const raw = fs.readFileSync(SESSIONS_FILE, "utf8").trim();
-      if (raw) return JSON.parse(raw) as SessionMap;
-    }
-  } catch (err) {
-    logger.warn({ err }, "Failed to read sessions.json — starting with empty store");
-  }
-  return {};
-}
-
-function getCache(): SessionMap {
-  if (_cache === null) _cache = loadCache();
-  return _cache;
-}
-
-// ---------------------------------------------------------------------------
-// Async write queue — prevents concurrent writes from clobbering each other
+// In-memory write-through cache — avoids a DB round-trip on every request.
+// The cache is populated lazily on first read for a given sessionId and is
+// kept in sync on every write.
 // ---------------------------------------------------------------------------
 
-let _writing = false;
-let _queued: SessionMap | null = null;
-
-async function writeMap(map: SessionMap): Promise<void> {
-  if (_writing) { _queued = map; return; }
-  _writing = true;
-  try {
-    await fsp.mkdir(STORAGE_DIR, { recursive: true });
-    await fsp.writeFile(SESSIONS_FILE, JSON.stringify(map, null, 2), "utf8");
-  } catch (err) {
-    logger.error({ err }, "Failed to write sessions.json");
-  } finally {
-    _writing = false;
-    if (_queued) { const q = _queued; _queued = null; await writeMap(q); }
-  }
-}
+const _cache = new Map<string, SessionRecord>();
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export function getSession(sessionId: string): SessionRecord | null {
-  return getCache()[sessionId] ?? null;
+export async function getSession(sessionId: string): Promise<SessionRecord | null> {
+  const hit = _cache.get(sessionId);
+  if (hit) return hit;
+
+  try {
+    const rows = await db
+      .select()
+      .from(sessionsTable)
+      .where(eq(sessionsTable.sessionId, sessionId))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const row = rows[0]!;
+    const record: SessionRecord = {
+      sessionString: row.sessionString,
+      phone: row.phone ?? undefined,
+      userId: row.userId ?? undefined,
+      firstName: row.firstName ?? undefined,
+      username: row.username ?? undefined,
+      lastSeen: row.lastSeen,
+    };
+    _cache.set(sessionId, record);
+    return record;
+  } catch (err) {
+    logger.warn({ err, sessionId }, "Failed to read session from DB — session treated as missing");
+    return null;
+  }
 }
 
 export async function saveSession(
   sessionId: string,
   update: Partial<SessionRecord> & { sessionString: string },
 ): Promise<void> {
-  const map = getCache();
-  map[sessionId] = { ...map[sessionId], ...update, lastSeen: Date.now() };
-  await writeMap(map);
-}
+  const existing = _cache.get(sessionId) ?? null;
+  const record: SessionRecord = {
+    ...existing,
+    ...update,
+    lastSeen: Date.now(),
+  };
+  _cache.set(sessionId, record);
 
-export async function clearSession(sessionId: string): Promise<void> {
-  const map = getCache();
-  if (map[sessionId]) {
-    map[sessionId] = { sessionString: "", lastSeen: Date.now() };
-    await writeMap(map);
+  try {
+    await db
+      .insert(sessionsTable)
+      .values({
+        sessionId,
+        sessionString: record.sessionString,
+        phone: record.phone ?? null,
+        userId: record.userId ?? null,
+        firstName: record.firstName ?? null,
+        username: record.username ?? null,
+        lastSeen: record.lastSeen,
+      })
+      .onConflictDoUpdate({
+        target: sessionsTable.sessionId,
+        set: {
+          sessionString: record.sessionString,
+          phone: record.phone ?? null,
+          userId: record.userId ?? null,
+          firstName: record.firstName ?? null,
+          username: record.username ?? null,
+          lastSeen: record.lastSeen,
+        },
+      });
+  } catch (err) {
+    logger.error({ err, sessionId }, "Failed to persist session to DB");
   }
 }
 
-export function getAllSessions(): SessionMap {
-  return getCache();
+export async function clearSession(sessionId: string): Promise<void> {
+  const existing = _cache.get(sessionId);
+  if (existing) {
+    const cleared: SessionRecord = { sessionString: "", lastSeen: Date.now() };
+    _cache.set(sessionId, cleared);
+  }
+
+  try {
+    await db
+      .insert(sessionsTable)
+      .values({
+        sessionId,
+        sessionString: "",
+        phone: null,
+        userId: null,
+        firstName: null,
+        username: null,
+        lastSeen: Date.now(),
+      })
+      .onConflictDoUpdate({
+        target: sessionsTable.sessionId,
+        set: {
+          sessionString: "",
+          phone: null,
+          userId: null,
+          firstName: null,
+          username: null,
+          lastSeen: Date.now(),
+        },
+      });
+  } catch (err) {
+    logger.error({ err, sessionId }, "Failed to clear session in DB");
+  }
+}
+
+export async function getAllSessions(): Promise<Record<string, SessionRecord>> {
+  try {
+    const rows = await db.select().from(sessionsTable);
+    const result: Record<string, SessionRecord> = {};
+    for (const row of rows) {
+      const record: SessionRecord = {
+        sessionString: row.sessionString,
+        phone: row.phone ?? undefined,
+        userId: row.userId ?? undefined,
+        firstName: row.firstName ?? undefined,
+        username: row.username ?? undefined,
+        lastSeen: row.lastSeen,
+      };
+      result[row.sessionId] = record;
+      _cache.set(row.sessionId, record);
+    }
+    return result;
+  } catch (err) {
+    logger.error({ err }, "Failed to read all sessions from DB");
+    const result: Record<string, SessionRecord> = {};
+    for (const [id, rec] of _cache.entries()) {
+      result[id] = rec;
+    }
+    return result;
+  }
 }
 
 export function touchSession(sessionId: string): void {
-  const map = getCache();
-  if (map[sessionId]) {
-    map[sessionId] = { ...map[sessionId], lastSeen: Date.now() };
-    void writeMap(map);
+  const hit = _cache.get(sessionId);
+  if (hit) {
+    hit.lastSeen = Date.now();
+    void saveSession(sessionId, hit);
   }
 }

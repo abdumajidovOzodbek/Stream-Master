@@ -44,7 +44,7 @@ setInterval(() => { void evictIdleClients(); }, EVICTION_INTERVAL_MS);
 // ---------------------------------------------------------------------------
 
 async function buildClient(sessionId: string): Promise<TelegramClient> {
-  const record = getSession(sessionId);
+  const record = await getSession(sessionId);
   const sessionString = record?.sessionString ?? "";
   const session = new StringSession(sessionString);
 
@@ -187,4 +187,12 @@ export async function logoutSession(sessionId: string): Promise<void> {
 export async function registerHandlersForSession(sessionId: string): Promise<void> {
   const hit = cache.get(sessionId);
   if (hit) registerUpdateHandlers(hit.client, sessionId);
+}
+
+// ---------------------------------------------------------------------------
+// Expose the in-process cache for SSE event subscriptions
+// ---------------------------------------------------------------------------
+
+export function getCachedClient(sessionId: string): TelegramClient | null {
+  return cache.get(sessionId)?.client ?? null;
 }

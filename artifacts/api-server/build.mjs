@@ -104,6 +104,12 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // DB deps — externalized to reduce bundle size; installed as direct deps
+      "pg",
+      "pg-pool",
+      "pg-types",
+      "drizzle-orm",
+      "drizzle-orm/*",
     ],
     sourcemap: "linked",
     plugins: [

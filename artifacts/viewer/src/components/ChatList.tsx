@@ -5,6 +5,7 @@ import { ChatAvatar } from "./Avatar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, Search, BadgeCheck, Bot, Pin, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -173,10 +174,18 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
 
         <ScrollArea className="flex-1">
           {isLoading && (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Loading chats…
-            </div>
+            <ul className="px-2 py-2">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <li key={i} className="flex min-h-[64px] items-center gap-3 rounded-xl px-2 py-2.5">
+                  <Skeleton className="h-[50px] w-[50px] shrink-0 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3.5 w-2/3 rounded" />
+                    <Skeleton className="h-3 w-full rounded" />
+                  </div>
+                  <Skeleton className="h-3 w-8 shrink-0 rounded" />
+                </li>
+              ))}
+            </ul>
           )}
           {error && (
             <div className="m-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">

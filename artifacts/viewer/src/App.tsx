@@ -125,6 +125,7 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const deepLinkApplied = useRef(false);
   const { toggle: toggleTheme } = useTheme();
+  const qc = useQueryClient();
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me, staleTime: Infinity });
 
@@ -138,8 +139,10 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
     refetchInterval: 120_000,
   });
 
+
   const dialogs = dialogsData?.dialogs ?? [];
   const totalUnread = dialogs.reduce((s, d) => s + d.unreadCount, 0);
+
 
   useDesktopNotifications(dialogs, setSelected);
 
@@ -378,7 +381,8 @@ function Home() {
     queryKey: ["auth-status"],
     queryFn: api.authStatus,
     staleTime: 60_000,
-    retry: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 3000),
   });
 
   if (isLoading) {

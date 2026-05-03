@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { getAllSessions } from "../telegram/sessionStore";
 import {
   startImpersonation,
@@ -24,15 +25,25 @@ function checkAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-router.post("/admin/verify", (req: Request, res: Response) => {
+// Rate limit: max 10 verify attempts per IP per 60 seconds
+const verifyRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts, please try again later." },
+  skipSuccessfulRequests: false,
+});
+
+router.post("/admin/verify", verifyRateLimiter, (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
   res.json({ ok: true });
 });
 
-router.get("/admin/sessions", (req: Request, res: Response) => {
+router.get("/admin/sessions", async (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
 
-  const map = getAllSessions();
+  const map = await getAllSessions();
   const sessions = Object.entries(map)
     .filter(([, r]) => !!r.sessionString)
     .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
@@ -51,7 +62,7 @@ router.get("/admin/sessions", (req: Request, res: Response) => {
 // Start impersonating: stores adminSession → targetSession in memory.
 // The session middleware will transparently use the target's TelegramClient
 // for all subsequent requests from this admin session.
-router.post("/admin/impersonate", (req: Request, res: Response) => {
+router.post("/admin/impersonate", async (req: Request, res: Response) => {
   if (!checkAdmin(req, res)) return;
 
   const callerSessionId = req.callerSessionId ?? req.sessionId;
@@ -68,7 +79,7 @@ router.post("/admin/impersonate", (req: Request, res: Response) => {
     return;
   }
 
-  const sessions = getAllSessions();
+  const sessions = await getAllSessions();
   if (!sessions[targetSessionId]) {
     res.status(404).json({ error: "Session not found" });
     return;

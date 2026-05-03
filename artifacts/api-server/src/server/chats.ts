@@ -23,6 +23,10 @@ import { streamRangedResponse } from "../lib/range";
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
+// In-memory dedup set for failed profile photo fetches.
+// Avoids hammering Telegram every page load for IDs we know have no photo.
+const failedPhotoIds = new Set<string>();
+
 function handleError(req: Request, res: Response, err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : String(err);
   req.log.error({ err }, fallback);
@@ -287,14 +291,26 @@ router.get("/photo/:peerId", async (req: Request, res: Response) => {
   const raw = req.params["peerId"];
   const peerId = (Array.isArray(raw) ? raw[0] : raw) ?? "";
   if (!peerId) { res.status(400).json({ error: "Missing peerId" }); return; }
+
+  // Return 404 immediately for IDs we already know have no photo — no Telegram round-trip.
+  if (failedPhotoIds.has(peerId)) {
+    res.status(404).json({ error: "No profile photo" });
+    return;
+  }
+
   try {
     const result = await getProfilePhoto(client, peerId);
-    if (!result) { res.status(404).json({ error: "No profile photo" }); return; }
+    if (!result) {
+      failedPhotoIds.add(peerId);
+      res.status(404).json({ error: "No profile photo" });
+      return;
+    }
     res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Content-Type", result.mimeType);
     res.setHeader("Content-Length", String(result.buffer.length));
     res.end(result.buffer);
   } catch (err) {
+    failedPhotoIds.add(peerId);
     handleError(req, res, err, "Failed to fetch profile photo");
   }
 });
