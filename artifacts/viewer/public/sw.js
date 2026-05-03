@@ -1,4 +1,4 @@
-const CACHE = "tgviewer-v1";
+const CACHE = "tgviewer-v2";
 const STATIC = ["/", "/favicon.svg", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
