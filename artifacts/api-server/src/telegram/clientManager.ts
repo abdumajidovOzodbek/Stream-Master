@@ -208,6 +208,9 @@ export type QrEvent =
   | { type: "success" }
   | { type: "error"; message: string };
 
+const QR_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const QR_EVICTION_INTERVAL_MS = 60 * 1000; // sweep every 60 seconds
+
 interface QrSession {
   emitter: EventEmitter;
   /** Resolve/reject for the 2FA password promise — both must be set together */
@@ -217,6 +220,8 @@ interface QrSession {
   lastQrEvent: (QrEvent & { type: "qr" }) | null;
   /** Set to true when the session should abort */
   cancelled: boolean;
+  /** Unix ms timestamp of last meaningful activity, used for TTL eviction */
+  lastActivity: number;
 }
 
 const qrSessions = new Map<string, QrSession>();
@@ -228,11 +233,35 @@ function createQrSession(sessionId: string): QrSession {
     passwordReject: null,
     lastQrEvent: null,
     cancelled: false,
+    lastActivity: Date.now(),
   };
   s.emitter.setMaxListeners(10);
   qrSessions.set(sessionId, s);
   return s;
 }
+
+function reapQrSession(sessionId: string, s: QrSession, reason: string): void {
+  s.cancelled = true;
+  if (s.passwordReject) {
+    s.passwordReject(new Error("QR session reaped: " + reason));
+    s.passwordReject = null;
+    s.passwordResolve = null;
+  }
+  s.emitter.removeAllListeners();
+  qrSessions.delete(sessionId);
+  logger.info({ sessionId, reason }, "Stale QR session reaped");
+}
+
+function evictStaleQrSessions(): void {
+  const cutoff = Date.now() - QR_SESSION_TTL_MS;
+  for (const [sessionId, s] of qrSessions.entries()) {
+    if (s.lastActivity < cutoff) {
+      reapQrSession(sessionId, s, "TTL expired");
+    }
+  }
+}
+
+setInterval(() => { evictStaleQrSessions(); }, QR_EVICTION_INTERVAL_MS).unref();
 
 export function getQrEmitter(sessionId: string): EventEmitter | null {
   return qrSessions.get(sessionId)?.emitter ?? null;
@@ -295,6 +324,7 @@ export async function startQrLogin(sessionId: string): Promise<void> {
           },
           qrCode: async (qr: { token: Buffer; expires: number }) => {
             if (session.cancelled) return;
+            session.lastActivity = Date.now(); // keep alive while QR tokens are flowing
             const token = qr.token.toString("base64url");
             const url = `tg://login?token=${token}`;
             const event = { type: "qr" as const, url, expires: qr.expires };
