@@ -10,12 +10,14 @@ import {
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import AdminPage from "@/pages/AdminPage";
 import { ChatList } from "@/components/ChatList";
 import { MessageView } from "@/components/MessageView";
 import { ChatAvatar } from "@/components/Avatar";
 import { Login } from "@/components/Login";
 import { Button } from "@/components/ui/button";
 import { api, type Dialog } from "@/lib/api";
+import { isImpersonating, stopImpersonating } from "@/lib/session";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -27,7 +29,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MessageSquare, Loader2, LogOut, Moon, Sun, EyeOff, Eye, Keyboard, MoreVertical } from "lucide-react";
+import {
+  MessageSquare,
+  Loader2,
+  LogOut,
+  Moon,
+  Sun,
+  EyeOff,
+  Eye,
+  Keyboard,
+  MoreVertical,
+  ShieldAlert,
+  CornerUpLeft,
+  Lock,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const queryClient = new QueryClient();
@@ -45,6 +60,36 @@ function ThemeToggle() {
     >
       {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
+  );
+}
+
+function ImpersonationBanner() {
+  if (!isImpersonating()) return null;
+  return (
+    <div className="flex items-center gap-2 border-b border-amber-400/30 bg-amber-50 px-3 py-1.5 text-xs dark:bg-amber-900/20">
+      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+      <span className="flex-1 text-amber-800 dark:text-amber-300">Viewing as another user</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-2 text-[11px] text-amber-700 hover:bg-amber-100 dark:text-amber-300"
+        onClick={() => { stopImpersonating(); window.location.href = "/admin"; }}
+      >
+        <CornerUpLeft className="h-3 w-3" />
+        Return
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-2 text-[11px] text-amber-700 hover:bg-amber-100 dark:text-amber-300"
+        asChild
+      >
+        <a href="/admin">
+          <Lock className="h-3 w-3" />
+          Admin
+        </a>
+      </Button>
+    </div>
   );
 }
 
@@ -70,12 +115,10 @@ function ChatApp() {
 
   useDesktopNotifications(dialogs, setSelected);
 
-  // Persist stealth mode
   useEffect(() => {
     localStorage.setItem("stealth-mode", stealthMode ? "1" : "0");
   }, [stealthMode]);
 
-  // Deep link: read ?c=chatId on first dialog load
   useEffect(() => {
     if (deepLinkApplied.current || dialogs.length === 0) return;
     deepLinkApplied.current = true;
@@ -85,7 +128,6 @@ function ChatApp() {
     if (d) setSelected(d);
   }, [dialogs]);
 
-  // Deep link: update URL when selected changes
   useEffect(() => {
     const url = new URL(window.location.href);
     if (selected) url.searchParams.set("c", selected.id);
@@ -93,7 +135,6 @@ function ChatApp() {
     window.history.replaceState({}, "", url.toString());
   }, [selected?.id]);
 
-  // Global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const inInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
@@ -133,107 +174,116 @@ function ChatApp() {
   const showSidebar = !selected;
 
   return (
-    <div className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground">
+      <ImpersonationBanner />
 
-      {/* ── Sidebar ─────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          "flex w-full flex-col border-r bg-sidebar",
-          "md:flex md:w-[320px] md:shrink-0",
-          selected ? "hidden md:flex" : "flex",
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-center gap-2 border-b px-3 py-2.5">
-          {me ? (
-            <>
-              <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={36} />
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-semibold leading-tight">{meName}</span>
-                  {totalUnread > 0 && (
-                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
-                      {totalUnread > 999 ? "999+" : totalUnread}
-                    </span>
-                  )}
-                </div>
-                <div className="truncate text-[11px] text-muted-foreground leading-tight mt-0.5">
-                  {me.username ? `@${me.username}` : me.phone ? `+${me.phone}` : ""}
-                </div>
-              </div>
-
-              {/* Stealth mode toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setStealthMode((v) => !v)}
-                title={stealthMode ? "Stealth ON — not sending read receipts (Ctrl+L)" : "Stealth OFF — sending read receipts (Ctrl+L)"}
-                className={cn("h-8 w-8 shrink-0", stealthMode ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground")}
-              >
-                {stealthMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-
-              <ThemeToggle />
-
-              {/* More menu: shortcuts + logout */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => setShowShortcuts(true)}>
-                    <Keyboard className="mr-2 h-4 w-4" />
-                    Keyboard shortcuts
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => { if (confirm("Log out of Telegram?")) api.logout().then(() => { queryClient.clear(); }); }}
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading…
-            </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ── Sidebar ─────────────────────────────────────────────── */}
+        <aside
+          className={cn(
+            "flex w-full flex-col border-r bg-sidebar",
+            "md:flex md:w-[320px] md:shrink-0",
+            selected ? "hidden md:flex" : "flex",
           )}
-        </div>
+        >
+          {/* Header */}
+          <div className="flex items-center gap-2 border-b px-3 py-2.5">
+            {me ? (
+              <>
+                <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={36} />
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold leading-tight">{meName}</span>
+                    {totalUnread > 0 && (
+                      <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                        {totalUnread > 999 ? "999+" : totalUnread}
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate text-[11px] text-muted-foreground leading-tight mt-0.5">
+                    {me.username ? `@${me.username}` : me.phone ? `+${me.phone}` : ""}
+                  </div>
+                </div>
 
-        {/* Chat list */}
-        <div className="min-h-0 flex-1">
-          <ChatList
-            ref={searchRef}
-            selectedId={selected?.id ?? null}
-            onSelect={(d) => setSelected(d)}
-          />
-        </div>
-      </aside>
+                {/* Stealth mode toggle */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setStealthMode((v) => !v)}
+                  title={stealthMode ? "Stealth ON — not sending read receipts (Ctrl+L)" : "Stealth OFF — sending read receipts (Ctrl+L)"}
+                  className={cn("h-8 w-8 shrink-0", stealthMode ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground")}
+                >
+                  {stealthMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
 
-      {/* ── Main content ─────────────────────────────────────────── */}
-      <main
-        className={cn(
-          "flex min-w-0 flex-1 flex-col",
-          selected ? "flex" : "hidden md:flex",
-        )}
-      >
-        {selected ? (
-          <MessageView
-            key={`${selected.type}-${selected.id}`}
-            dialog={selected}
-            onBack={() => setSelected(null)}
-            stealthMode={stealthMode}
-          />
-        ) : (
-          <DiscoverPage onSelect={setSelected} />
-        )}
-      </main>
+                <ThemeToggle />
+
+                {/* More menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setShowShortcuts(true)}>
+                      <Keyboard className="mr-2 h-4 w-4" />
+                      Keyboard shortcuts
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <a href="/admin">
+                        <Lock className="mr-2 h-4 w-4" />
+                        Admin panel
+                      </a>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => { if (confirm("Log out of Telegram?")) api.logout().then(() => { queryClient.clear(); window.location.reload(); }); }}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Log out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </div>
+            )}
+          </div>
+
+          {/* Chat list */}
+          <div className="min-h-0 flex-1">
+            <ChatList
+              ref={searchRef}
+              selectedId={selected?.id ?? null}
+              onSelect={(d) => setSelected(d)}
+            />
+          </div>
+        </aside>
+
+        {/* ── Main content ─────────────────────────────────────────── */}
+        <main
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            selected ? "flex" : "hidden md:flex",
+          )}
+        >
+          {selected ? (
+            <MessageView
+              key={`${selected.type}-${selected.id}`}
+              dialog={selected}
+              onBack={() => setSelected(null)}
+              stealthMode={stealthMode}
+            />
+          ) : (
+            <DiscoverPage onSelect={setSelected} />
+          )}
+        </main>
+      </div>
 
       {/* Modals */}
       <KeyboardShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
@@ -264,6 +314,7 @@ function Home() {
 function Router() {
   return (
     <Switch>
+      <Route path="/admin" component={AdminPage} />
       <Route path="/" component={Home} />
       <Route component={NotFound} />
     </Switch>

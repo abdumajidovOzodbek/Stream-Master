@@ -1,10 +1,28 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { type TelegramClient } from "telegram";
 import { listChannelVideos, openChannelVideo } from "../telegram/videos";
 import { streamRangedResponse } from "../lib/range";
 
 const router: IRouter = Router();
 
+async function getAuthedClient(req: Request, res: Response): Promise<TelegramClient | null> {
+  const client = req.telegramClient;
+  if (!client) {
+    res.status(401).json({ error: "Not logged in", detail: "No session ID" });
+    return null;
+  }
+  const authed = await client.isUserAuthorized().catch(() => false);
+  if (!authed) {
+    res.status(401).json({ error: "Not logged in" });
+    return null;
+  }
+  return client;
+}
+
 router.get("/channel-videos", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+
   const channel = (req.query["channel"] as string | undefined)?.trim();
   if (!channel) {
     res.status(400).json({ error: "Missing required query param: channel" });
@@ -14,7 +32,7 @@ router.get("/channel-videos", async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query["limit"] ?? 20) || 20, 100);
 
   try {
-    const metas = await listChannelVideos(channel, limit);
+    const metas = await listChannelVideos(client, channel, limit);
     const channelHandle = channel.replace(/^@/, "");
     const videos = metas.map((meta) => ({
       ...meta,
@@ -26,13 +44,8 @@ router.get("/channel-videos", async (req: Request, res: Response) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err, channel }, "Failed to fetch channel videos");
-
     if (/CHANNEL_PRIVATE|CHAT_ADMIN_REQUIRED|USERNAME_INVALID|USERNAME_NOT_OCCUPIED/i.test(message)) {
       res.status(403).json({ error: "Channel is private or inaccessible", detail: message });
-      return;
-    }
-    if (/TELEGRAM_SESSION/i.test(message)) {
-      res.status(401).json({ error: "Not logged in", detail: message });
       return;
     }
     res.status(500).json({ error: "Failed to fetch channel videos", detail: message });
@@ -40,6 +53,9 @@ router.get("/channel-videos", async (req: Request, res: Response) => {
 });
 
 router.get("/videos/:channel/:messageId", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+
   const channelRaw = req.params["channel"];
   const msgRaw = req.params["messageId"];
   const channel = (Array.isArray(channelRaw) ? channelRaw[0] : channelRaw) ?? "";
@@ -52,7 +68,7 @@ router.get("/videos/:channel/:messageId", async (req: Request, res: Response) =>
   }
 
   try {
-    const opened = await openChannelVideo(channel, messageId);
+    const opened = await openChannelVideo(client, channel, messageId);
     if (!opened) {
       res.status(404).json({ error: "Video not found" });
       return;

@@ -1,10 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
-  isAuthenticated,
-  startLogin,
-  completeLogin,
-  logout,
-} from "../telegram/client";
+  isSessionAuthenticated,
+  startSessionLogin,
+  completeSessionLogin,
+  logoutSession,
+} from "../telegram/clientManager";
 import { getMe } from "../telegram/chats";
 
 const router: IRouter = Router();
@@ -32,13 +32,23 @@ function handleAuthError(req: Request, res: Response, err: unknown, fallback: st
 }
 
 router.get("/auth/status", async (req: Request, res: Response) => {
+  const sessionId = req.sessionId;
+  if (!sessionId) {
+    res.json({ authenticated: false });
+    return;
+  }
   try {
-    const authed = await isAuthenticated();
+    const authed = await isSessionAuthenticated(sessionId);
     if (!authed) {
       res.json({ authenticated: false });
       return;
     }
-    const me = await getMe();
+    const client = req.telegramClient;
+    if (!client) {
+      res.json({ authenticated: false });
+      return;
+    }
+    const me = await getMe(client);
     res.json({ authenticated: true, me });
   } catch (err) {
     req.log.warn({ err }, "auth/status failed");
@@ -47,6 +57,11 @@ router.get("/auth/status", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/send-code", async (req: Request, res: Response) => {
+  const sessionId = req.sessionId;
+  if (!sessionId) {
+    res.status(400).json({ error: "No session ID provided (X-Session-ID header missing)" });
+    return;
+  }
   const body = (req.body ?? {}) as { phone?: string };
   const phone = body.phone?.trim();
   if (!phone) {
@@ -54,7 +69,7 @@ router.post("/auth/send-code", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await startLogin(phone);
+    const result = await startSessionLogin(sessionId, phone);
     res.json(result);
   } catch (err) {
     handleAuthError(req, res, err, "Failed to send login code");
@@ -62,6 +77,11 @@ router.post("/auth/send-code", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/sign-in", async (req: Request, res: Response) => {
+  const sessionId = req.sessionId;
+  if (!sessionId) {
+    res.status(400).json({ error: "No session ID provided (X-Session-ID header missing)" });
+    return;
+  }
   const body = (req.body ?? {}) as {
     phone?: string;
     phoneCodeHash?: string;
@@ -74,7 +94,7 @@ router.post("/auth/sign-in", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await completeLogin({ phone, phoneCodeHash, code, password });
+    const result = await completeSessionLogin(sessionId, { phone, phoneCodeHash, code, password });
     if ("needsPassword" in result) {
       res.json({ ok: false, needsPassword: true });
       return;
@@ -86,8 +106,13 @@ router.post("/auth/sign-in", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
+  const sessionId = req.sessionId;
+  if (!sessionId) {
+    res.json({ ok: true });
+    return;
+  }
   try {
-    await logout();
+    await logoutSession(sessionId);
     res.json({ ok: true });
   } catch (err) {
     handleAuthError(req, res, err, "Failed to log out");

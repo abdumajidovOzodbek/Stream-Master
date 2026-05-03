@@ -1,3 +1,5 @@
+import { getSessionId } from "./session";
+
 export interface Me {
   id: string;
   firstName: string | null;
@@ -37,37 +39,11 @@ export interface Dialog {
 
 export type MessageMedia =
   | { kind: "photo"; width: number | null; height: number | null; url: string }
-  | {
-      kind: "video";
-      width: number | null;
-      height: number | null;
-      duration: number | null;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-      thumbUrl: string | null;
-    }
-  | {
-      kind: "document";
-      fileName: string;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-    }
-  | {
-      kind: "audio" | "voice";
-      duration: number | null;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-    }
+  | { kind: "video"; width: number | null; height: number | null; duration: number | null; mimeType: string | null; size: number | null; url: string; thumbUrl: string | null }
+  | { kind: "document"; fileName: string; mimeType: string | null; size: number | null; url: string }
+  | { kind: "audio" | "voice"; duration: number | null; mimeType: string | null; size: number | null; url: string }
   | { kind: "sticker"; url: string; mimeType: string | null }
-  | {
-      kind: "webpage";
-      title: string | null;
-      description: string | null;
-      url: string | null;
-    }
+  | { kind: "webpage"; title: string | null; description: string | null; url: string | null }
   | { kind: "other"; label: string };
 
 export interface Reaction {
@@ -116,13 +92,27 @@ export interface UserInfo {
   type: "user" | "chat" | "channel";
 }
 
+export interface AdminSession {
+  sessionId: string;
+  phone: string | null;
+  userId: string | null;
+  firstName: string | null;
+  username: string | null;
+  lastSeen: number;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch helpers — all include X-Session-ID
+// ---------------------------------------------------------------------------
+
+function sessionHeaders(): Record<string, string> {
+  return { "X-Session-ID": getSessionId() };
+}
+
 async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: sessionHeaders() });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      detail?: string;
-    };
+    const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
     throw new Error(body.detail || body.error || `HTTP ${res.status}`);
   }
   return (await res.json()) as T;
@@ -131,18 +121,19 @@ async function get<T>(url: string): Promise<T> {
 async function postJson<T>(url: string, payload: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...sessionHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      detail?: string;
-    };
+    const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
     throw new Error(body.detail || body.error || `HTTP ${res.status}`);
   }
   return (await res.json()) as T;
 }
+
+// ---------------------------------------------------------------------------
+// Main API
+// ---------------------------------------------------------------------------
 
 export const api = {
   me: () => get<Me>("/api/me"),
@@ -174,18 +165,17 @@ export const api = {
       ...(scheduleDate ? { scheduleDate } : {}),
     }),
 
-  sendMedia: (
-    chatId: string,
-    file: File,
-    caption?: string,
-    replyToMsgId?: number,
-  ) => {
+  sendMedia: (chatId: string, file: File, caption?: string, replyToMsgId?: number) => {
     const fd = new FormData();
     fd.append("chatId", chatId);
     fd.append("file", file);
     if (caption) fd.append("caption", caption);
     if (replyToMsgId) fd.append("replyToMsgId", String(replyToMsgId));
-    return fetch("/api/media", { method: "POST", body: fd }).then(async (r) => {
+    return fetch("/api/media", {
+      method: "POST",
+      headers: sessionHeaders(),
+      body: fd,
+    }).then(async (r) => {
       if (!r.ok) {
         const body = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? `HTTP ${r.status}`);
@@ -204,9 +194,7 @@ export const api = {
     ),
 
   searchContacts: (q: string, limit = 20) =>
-    get<Dialog[]>(
-      `/api/contacts/search?q=${encodeURIComponent(q)}&limit=${limit}`,
-    ),
+    get<Dialog[]>(`/api/contacts/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 
   ogData: (url: string) =>
     get<{ title: string | null; description: string | null; image: string | null }>(
@@ -215,22 +203,41 @@ export const api = {
 
   folders: () => get<{ id: number; title: string }[]>("/api/folders"),
 
-  authStatus: () =>
-    get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
+  authStatus: () => get<{ authenticated: boolean; me?: Me }>("/api/auth/status"),
 
   sendCode: (phone: string) =>
-    postJson<{ phoneCodeHash: string; isCodeViaApp: boolean }>(
-      "/api/auth/send-code",
-      { phone },
-    ),
+    postJson<{ phoneCodeHash: string; isCodeViaApp: boolean }>("/api/auth/send-code", { phone }),
 
-  signIn: (params: {
-    phone: string;
-    phoneCodeHash: string;
-    code: string;
-    password?: string;
-  }) =>
+  signIn: (params: { phone: string; phoneCodeHash: string; code: string; password?: string }) =>
     postJson<{ ok: boolean; needsPassword?: boolean }>("/api/auth/sign-in", params),
 
   logout: () => postJson<{ ok: true }>("/api/auth/logout", {}),
+};
+
+// ---------------------------------------------------------------------------
+// Admin API
+// ---------------------------------------------------------------------------
+
+function adminHeaders(secret: string): Record<string, string> {
+  return { "X-Admin-Secret": secret };
+}
+
+export const adminApi = {
+  verify: (secret: string) =>
+    fetch("/api/admin/verify", {
+      method: "POST",
+      headers: { ...adminHeaders(secret), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).then((r) => r.json()) as Promise<{ ok?: boolean; error?: string }>,
+
+  sessions: (secret: string) =>
+    fetch("/api/admin/sessions", {
+      headers: adminHeaders(secret),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      return r.json() as Promise<{ sessions: AdminSession[] }>;
+    }),
 };

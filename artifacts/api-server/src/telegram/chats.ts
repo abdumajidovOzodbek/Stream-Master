@@ -1,7 +1,6 @@
-import { Api } from "telegram";
+import { TelegramClient, Api } from "telegram";
 import bigInt from "big-integer";
 import path from "node:path";
-import { getTelegramClient } from "./client";
 import { logger } from "../lib/logger";
 
 export type UserPresence =
@@ -69,51 +68,13 @@ export interface MessageEntry {
 }
 
 export type MessageMedia =
-  | {
-      kind: "photo";
-      width: number | null;
-      height: number | null;
-      url: string;
-    }
-  | {
-      kind: "video";
-      width: number | null;
-      height: number | null;
-      duration: number | null;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-      thumbUrl: string | null;
-    }
-  | {
-      kind: "document";
-      fileName: string;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-    }
-  | {
-      kind: "audio" | "voice";
-      duration: number | null;
-      mimeType: string | null;
-      size: number | null;
-      url: string;
-    }
-  | {
-      kind: "sticker";
-      url: string;
-      mimeType: string | null;
-    }
-  | {
-      kind: "webpage";
-      title: string | null;
-      description: string | null;
-      url: string | null;
-    }
-  | {
-      kind: "other";
-      label: string;
-    };
+  | { kind: "photo"; width: number | null; height: number | null; url: string }
+  | { kind: "video"; width: number | null; height: number | null; duration: number | null; mimeType: string | null; size: number | null; url: string; thumbUrl: string | null }
+  | { kind: "document"; fileName: string; mimeType: string | null; size: number | null; url: string }
+  | { kind: "audio" | "voice"; duration: number | null; mimeType: string | null; size: number | null; url: string }
+  | { kind: "sticker"; url: string; mimeType: string | null }
+  | { kind: "webpage"; title: string | null; description: string | null; url: string | null }
+  | { kind: "other"; label: string };
 
 export interface MeInfo {
   id: string;
@@ -173,12 +134,8 @@ function entityTitle(entity: unknown): string {
 function userPresence(user: Api.User): UserPresence | null {
   const status = user.status;
   if (!status) return null;
-  if (status instanceof Api.UserStatusOnline) {
-    return { kind: "online", expires: status.expires };
-  }
-  if (status instanceof Api.UserStatusOffline) {
-    return { kind: "offline", wasOnline: status.wasOnline };
-  }
+  if (status instanceof Api.UserStatusOnline) return { kind: "online", expires: status.expires };
+  if (status instanceof Api.UserStatusOffline) return { kind: "offline", wasOnline: status.wasOnline };
   if (status instanceof Api.UserStatusRecently) return { kind: "recently" };
   if (status instanceof Api.UserStatusLastWeek) return { kind: "lastWeek" };
   if (status instanceof Api.UserStatusLastMonth) return { kind: "lastMonth" };
@@ -193,11 +150,7 @@ function extractReactions(msg: Api.Message): Reaction[] {
     if (!(rc instanceof Api.ReactionCount)) continue;
     const r = rc.reaction;
     if (!(r instanceof Api.ReactionEmoji)) continue;
-    out.push({
-      emoji: r.emoticon,
-      count: rc.count,
-      chosen: typeof rc.chosenOrder === "number",
-    });
+    out.push({ emoji: r.emoticon, count: rc.count, chosen: typeof rc.chosenOrder === "number" });
   }
   return out;
 }
@@ -212,12 +165,8 @@ function summarizeMessageText(msg: Api.Message | undefined): string {
     const doc = media.document;
     if (doc instanceof Api.Document) {
       const isVideo = doc.attributes.some((a) => a instanceof Api.DocumentAttributeVideo);
-      const isVoice = doc.attributes.some(
-        (a) => a instanceof Api.DocumentAttributeAudio && a.voice,
-      );
-      const isAudio = doc.attributes.some(
-        (a) => a instanceof Api.DocumentAttributeAudio && !a.voice,
-      );
+      const isVoice = doc.attributes.some((a) => a instanceof Api.DocumentAttributeAudio && a.voice);
+      const isAudio = doc.attributes.some((a) => a instanceof Api.DocumentAttributeAudio && !a.voice);
       const isSticker = doc.attributes.some((a) => a instanceof Api.DocumentAttributeSticker);
       if (isVideo) return "🎬 Video";
       if (isVoice) return "🎤 Voice message";
@@ -243,8 +192,7 @@ interface ResolvedEntity {
   id: string;
 }
 
-async function resolveEntity(chatId: string): Promise<ResolvedEntity> {
-  const client = await getTelegramClient();
+async function resolveEntity(client: TelegramClient, chatId: string): Promise<ResolvedEntity> {
   let entity: unknown;
   try {
     entity = await client.getEntity(chatId);
@@ -289,18 +237,10 @@ function extractMessageMedia(msg: Api.Message, chatId: string): MessageMedia | n
     const size = doc.size != null ? Number(doc.size as unknown as bigint | number) : null;
     const mimeType = doc.mimeType ?? null;
 
-    const videoAttr = doc.attributes.find(
-      (a): a is Api.DocumentAttributeVideo => a instanceof Api.DocumentAttributeVideo,
-    );
-    const audioAttr = doc.attributes.find(
-      (a): a is Api.DocumentAttributeAudio => a instanceof Api.DocumentAttributeAudio,
-    );
-    const fileAttr = doc.attributes.find(
-      (a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename,
-    );
-    const stickerAttr = doc.attributes.find(
-      (a): a is Api.DocumentAttributeSticker => a instanceof Api.DocumentAttributeSticker,
-    );
+    const videoAttr = doc.attributes.find((a): a is Api.DocumentAttributeVideo => a instanceof Api.DocumentAttributeVideo);
+    const audioAttr = doc.attributes.find((a): a is Api.DocumentAttributeAudio => a instanceof Api.DocumentAttributeAudio);
+    const fileAttr = doc.attributes.find((a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename);
+    const stickerAttr = doc.attributes.find((a): a is Api.DocumentAttributeSticker => a instanceof Api.DocumentAttributeSticker);
 
     if (videoAttr) {
       return {
@@ -315,35 +255,18 @@ function extractMessageMedia(msg: Api.Message, chatId: string): MessageMedia | n
       };
     }
     if (audioAttr) {
-      return {
-        kind: audioAttr.voice ? "voice" : "audio",
-        duration: audioAttr.duration ?? null,
-        mimeType,
-        size,
-        url,
-      };
+      return { kind: audioAttr.voice ? "voice" : "audio", duration: audioAttr.duration ?? null, mimeType, size, url };
     }
     if (stickerAttr) {
       return { kind: "sticker", url, mimeType };
     }
-    return {
-      kind: "document",
-      fileName: fileAttr?.fileName ?? "file",
-      mimeType,
-      size,
-      url,
-    };
+    return { kind: "document", fileName: fileAttr?.fileName ?? "file", mimeType, size, url };
   }
 
   if (media instanceof Api.MessageMediaWebPage) {
     const w = media.webpage;
     if (w instanceof Api.WebPage) {
-      return {
-        kind: "webpage",
-        title: w.title ?? null,
-        description: w.description ?? null,
-        url: w.url ?? null,
-      };
+      return { kind: "webpage", title: w.title ?? null, description: w.description ?? null, url: w.url ?? null };
     }
     return { kind: "webpage", title: null, description: null, url: null };
   }
@@ -363,7 +286,7 @@ function fwdFromInfo(m: Api.Message): ForwardInfo | null {
 }
 
 // ---------------------------------------------------------------------------
-// Core message builder (shared by listMessages + searchMessages)
+// Core message builder
 // ---------------------------------------------------------------------------
 
 function buildMessageEntry(
@@ -382,11 +305,8 @@ function buildMessageEntry(
   const senderHasPhoto = !!(sender as { photo?: unknown } | undefined)?.photo;
 
   const replyToMsgId =
-    m.replyTo instanceof Api.MessageReplyHeader
-      ? m.replyTo.replyToMsgId ?? null
-      : null;
-  const replyTo =
-    replyToMsgId != null ? replyPreviews.get(replyToMsgId) ?? null : null;
+    m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId ?? null : null;
+  const replyTo = replyToMsgId != null ? replyPreviews.get(replyToMsgId) ?? null : null;
 
   return {
     id: m.id,
@@ -407,11 +327,10 @@ function buildMessageEntry(
 }
 
 // ---------------------------------------------------------------------------
-// Exported functions
+// Exported functions (all accept a TelegramClient as first param)
 // ---------------------------------------------------------------------------
 
-export async function getMe(): Promise<MeInfo> {
-  const client = await getTelegramClient();
+export async function getMe(client: TelegramClient): Promise<MeInfo> {
   const me = (await client.getMe()) as Api.User;
   return {
     id: bigToString(me.id),
@@ -422,8 +341,7 @@ export async function getMe(): Promise<MeInfo> {
   };
 }
 
-export async function listDialogs(limit = 100): Promise<DialogEntry[]> {
-  const client = await getTelegramClient();
+export async function listDialogs(client: TelegramClient, limit = 100): Promise<DialogEntry[]> {
   const dialogs = await client.getDialogs({ limit });
 
   const out: DialogEntry[] = [];
@@ -438,26 +356,16 @@ export async function listDialogs(limit = 100): Promise<DialogEntry[]> {
     const hasPhoto = !!(entity as { photo?: unknown }).photo;
 
     const lastMessage = d.message
-      ? {
-          id: d.message.id,
-          text: summarizeMessageText(d.message),
-          date: d.message.date,
-          out: !!d.message.out,
-        }
+      ? { id: d.message.id, text: summarizeMessageText(d.message), date: d.message.date, out: !!d.message.out }
       : null;
 
     const rawDialog = (d as unknown as { dialog?: Api.Dialog }).dialog;
     const readInboxMaxId =
-      rawDialog && typeof rawDialog.readInboxMaxId === "number"
-        ? rawDialog.readInboxMaxId
-        : null;
+      rawDialog && typeof rawDialog.readInboxMaxId === "number" ? rawDialog.readInboxMaxId : null;
     const readOutboxMaxId =
-      rawDialog && typeof rawDialog.readOutboxMaxId === "number"
-        ? rawDialog.readOutboxMaxId
-        : null;
+      rawDialog && typeof rawDialog.readOutboxMaxId === "number" ? rawDialog.readOutboxMaxId : null;
 
-    const presence =
-      entity instanceof Api.User && !entity.bot ? userPresence(entity) : null;
+    const presence = entity instanceof Api.User && !entity.bot ? userPresence(entity) : null;
 
     out.push({
       id: bigToString((entity as { id: unknown }).id),
@@ -479,33 +387,24 @@ export async function listDialogs(limit = 100): Promise<DialogEntry[]> {
 }
 
 export async function listMessages(
+  client: TelegramClient,
   chatId: string,
   limit: number,
   offsetId: number | undefined,
 ): Promise<{ chatId: string; messages: MessageEntry[] }> {
-  const { entity, id: resolvedId } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
-  const messages = await client.getMessages(entity, {
-    limit,
-    offsetId: offsetId ?? 0,
-  });
+  const { entity, id: resolvedId } = await resolveEntity(client, chatId);
+  const messages = await client.getMessages(entity, { limit, offsetId: offsetId ?? 0 });
 
-  // Batch-fetch the replied-to messages so we can render preview bubbles.
   const replyIds = new Set<number>();
   for (const m of messages) {
-    if (
-      m.replyTo instanceof Api.MessageReplyHeader &&
-      m.replyTo.replyToMsgId != null
-    ) {
+    if (m.replyTo instanceof Api.MessageReplyHeader && m.replyTo.replyToMsgId != null) {
       replyIds.add(m.replyTo.replyToMsgId);
     }
   }
   const replyPreviews = new Map<number, ReplyPreview>();
   if (replyIds.size > 0) {
     try {
-      const targets = await client.getMessages(entity, {
-        ids: Array.from(replyIds),
-      });
+      const targets = await client.getMessages(entity, { ids: Array.from(replyIds) });
       for (const t of targets) {
         if (!t || typeof t.id !== "number") continue;
         const sender = (t as unknown as { sender?: unknown }).sender;
@@ -521,41 +420,33 @@ export async function listMessages(
     }
   }
 
-  const out: MessageEntry[] = messages.map((m) =>
-    buildMessageEntry(m, resolvedId, replyPreviews),
-  );
-
+  const out: MessageEntry[] = messages.map((m) => buildMessageEntry(m, resolvedId, replyPreviews));
   return { chatId: resolvedId, messages: out };
 }
 
 export async function searchMessages(
+  client: TelegramClient,
   chatId: string,
   query: string,
   limit = 20,
 ): Promise<{ chatId: string; messages: MessageEntry[] }> {
-  const { entity, id: resolvedId } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
-  const messages = await client.getMessages(entity, {
-    search: query,
-    limit,
-  });
+  const { entity, id: resolvedId } = await resolveEntity(client, chatId);
+  const messages = await client.getMessages(entity, { search: query, limit });
   const emptyMap = new Map<number, ReplyPreview>();
   const out = messages.map((m) => buildMessageEntry(m, resolvedId, emptyMap));
   return { chatId: resolvedId, messages: out };
 }
 
-export async function getUserInfo(peerId: string): Promise<UserInfo> {
-  const { entity } = await resolveEntity(peerId);
+export async function getUserInfo(client: TelegramClient, peerId: string): Promise<UserInfo> {
+  const { entity } = await resolveEntity(client, peerId);
   const type = entityType(entity);
   const name = entityTitle(entity);
   const username = (entity as { username?: string | null }).username ?? null;
   const hasPhoto = !!(entity as { photo?: unknown }).photo;
-  const isBot =
-    entity instanceof Api.User ? !!entity.bot : false;
+  const isBot = entity instanceof Api.User ? !!entity.bot : false;
 
   let bio: string | null = null;
   try {
-    const client = await getTelegramClient();
     if (entity instanceof Api.User) {
       const full = await client.invoke(
         new Api.users.GetFullUser({ id: entity as unknown as Api.TypeInputUser }),
@@ -564,16 +455,12 @@ export async function getUserInfo(peerId: string): Promise<UserInfo> {
       bio = about ?? null;
     } else if (entity instanceof Api.Chat || entity instanceof Api.Channel) {
       const full = await client.invoke(
-        new Api.channels.GetFullChannel({
-          channel: entity as unknown as Api.TypeInputChannel,
-        }),
+        new Api.channels.GetFullChannel({ channel: entity as unknown as Api.TypeInputChannel }),
       );
       const about = (full as unknown as { fullChat?: { about?: string } }).fullChat?.about;
       bio = about ?? null;
     }
-  } catch {
-    // bio is optional; ignore errors
-  }
+  } catch { /* bio optional */ }
 
   return {
     id: bigToString((entity as { id: unknown }).id),
@@ -588,16 +475,17 @@ export async function getUserInfo(peerId: string): Promise<UserInfo> {
 }
 
 export async function markChatRead(
+  client: TelegramClient,
   chatId: string,
   maxId?: number,
 ): Promise<{ ok: true }> {
-  const { entity } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
+  const { entity } = await resolveEntity(client, chatId);
   await client.markAsRead(entity, maxId, { clearMentions: true });
   return { ok: true };
 }
 
 export async function sendChatMessage(
+  client: TelegramClient,
   chatId: string,
   text: string,
   replyToMsgId?: number,
@@ -605,8 +493,7 @@ export async function sendChatMessage(
 ): Promise<{ id: number; date: number }> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Message text is empty");
-  const { entity } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
+  const { entity } = await resolveEntity(client, chatId);
   const sent = (await client.sendMessage(entity, {
     message: trimmed,
     ...(replyToMsgId ? { replyTo: replyToMsgId } : {}),
@@ -616,14 +503,14 @@ export async function sendChatMessage(
 }
 
 export async function sendMediaFile(
+  client: TelegramClient,
   chatId: string,
   buffer: Buffer,
   filename: string,
   caption?: string,
   replyToMsgId?: number,
 ): Promise<{ id: number; date: number }> {
-  const { entity } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
+  const { entity } = await resolveEntity(client, chatId);
   const { CustomFile } = await import("telegram/client/uploads.js");
   const file = new CustomFile(filename, buffer.length, filename, buffer);
   const sent = (await client.sendFile(entity, {
@@ -636,12 +523,12 @@ export async function sendMediaFile(
 }
 
 export async function setMessageReaction(
+  client: TelegramClient,
   chatId: string,
   msgId: number,
   emoji: string | null,
 ): Promise<{ ok: true }> {
-  const { entity } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
+  const { entity } = await resolveEntity(client, chatId);
   const reaction = emoji ? [new Api.ReactionEmoji({ emoticon: emoji })] : [];
   await client.invoke(
     new Api.messages.SendReaction({
@@ -655,9 +542,9 @@ export async function setMessageReaction(
 }
 
 export async function getProfilePhoto(
+  client: TelegramClient,
   peerId: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
-  const client = await getTelegramClient();
   let entity: unknown;
   try {
     entity = await client.getEntity(peerId);
@@ -692,12 +579,12 @@ export interface OpenedMedia {
 const STREAM_CHUNK_SIZE = 512 * 1024;
 
 export async function openMessageMedia(
+  client: TelegramClient,
   chatId: string,
   messageId: number,
   thumb: boolean,
 ): Promise<OpenedMedia | null> {
-  const { entity } = await resolveEntity(chatId);
-  const client = await getTelegramClient();
+  const { entity } = await resolveEntity(client, chatId);
   const messages = await client.getMessages(entity, { ids: [messageId] });
   const message = messages[0];
   if (!message || !message.media) return null;
@@ -726,21 +613,18 @@ export async function openMessageMedia(
     const doc = media.document;
     const mimeType = doc.mimeType ?? null;
     const totalSize = Number(doc.size as unknown as bigint | number);
-
     const fileAttr = doc.attributes.find(
       (a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename,
     );
-    const originalName = fileAttr?.fileName ?? null;
-    let ext = ".bin";
-    if (originalName) {
-      const e = path.extname(originalName);
-      if (e) ext = e;
-    } else if (mimeType === "video/mp4") ext = ".mp4";
-    else if (mimeType === "video/webm") ext = ".webm";
-    else if (mimeType === "image/webp") ext = ".webp";
-    else if (mimeType === "audio/ogg") ext = ".ogg";
-    else if (mimeType === "audio/mpeg") ext = ".mp3";
-    const fileName = originalName ?? `media_${messageId}${ext}`;
+    const fileName = fileAttr?.fileName ?? `file_${messageId}`;
+
+    const isSmall = totalSize < 20 * 1024 * 1024;
+
+    if (isSmall) {
+      const buffer = (await client.downloadMedia(message, {})) as Buffer | undefined;
+      if (!buffer || buffer.length === 0) return null;
+      return { info: { mimeType, fileName, size: buffer.length }, fullBuffer: buffer };
+    }
 
     const fileLocation = new Api.InputDocumentFileLocation({
       id: doc.id,
@@ -756,7 +640,6 @@ export async function openMessageMedia(
         if (byteLength <= 0 || byteOffset >= totalSize) return;
         const end = Math.min(byteOffset + byteLength, totalSize);
         const length = end - byteOffset;
-
         const alignedOffset = Math.floor(byteOffset / STREAM_CHUNK_SIZE) * STREAM_CHUNK_SIZE;
         const skip = byteOffset - alignedOffset;
         const chunksNeeded = Math.ceil((skip + length) / STREAM_CHUNK_SIZE);
@@ -777,16 +660,11 @@ export async function openMessageMedia(
           if (remaining <= 0) break;
           let chunk = raw as Buffer;
           if (leadingSkip > 0) {
-            if (leadingSkip >= chunk.length) {
-              leadingSkip -= chunk.length;
-              continue;
-            }
+            if (leadingSkip >= chunk.length) { leadingSkip -= chunk.length; continue; }
             chunk = chunk.subarray(leadingSkip);
             leadingSkip = 0;
           }
-          if (chunk.length > remaining) {
-            chunk = chunk.subarray(0, remaining);
-          }
+          if (chunk.length > remaining) chunk = chunk.subarray(0, remaining);
           yield chunk;
           remaining -= chunk.length;
         }
@@ -798,7 +676,7 @@ export async function openMessageMedia(
 }
 
 // ---------------------------------------------------------------------------
-// OG meta-tag fetcher (for link previews)
+// OG meta-tag fetcher (no Telegram client needed)
 // ---------------------------------------------------------------------------
 
 export async function fetchOgData(url: string): Promise<{
@@ -808,7 +686,7 @@ export async function fetchOgData(url: string): Promise<{
 }> {
   try {
     const resp = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; TelegramViewer/1.0; +https://github.com)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TelegramViewer/1.0)" },
       signal: AbortSignal.timeout(5_000),
       redirect: "follow",
     });
@@ -825,24 +703,19 @@ export async function fetchOgData(url: string): Promise<{
       getOg("title") ??
       html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1]?.trim() ??
       null;
-    const description = getOg("description");
-    const image = getOg("image");
-    return { title, description, image };
+    return { title, description: getOg("description"), image: getOg("image") };
   } catch {
     return { title: null, description: null, image: null };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Dialog folders (user-created Telegram chat folders)
+// Dialog folders
 // ---------------------------------------------------------------------------
 
-export async function getDialogFolders(): Promise<{ id: number; title: string }[]> {
-  const client = await getTelegramClient();
+export async function getDialogFolders(client: TelegramClient): Promise<{ id: number; title: string }[]> {
   const raw = (await client.invoke(new Api.messages.GetDialogFilters())) as unknown;
-  const filters: unknown[] = Array.isArray(raw)
-    ? raw
-    : ((raw as { filters?: unknown[] }).filters ?? []);
+  const filters: unknown[] = Array.isArray(raw) ? raw : ((raw as { filters?: unknown[] }).filters ?? []);
 
   const out: { id: number; title: string }[] = [];
   for (const f of filters) {
@@ -862,18 +735,12 @@ export async function getDialogFolders(): Promise<{ id: number; title: string }[
 // Global contact / channel / bot search
 // ---------------------------------------------------------------------------
 
-export async function searchContacts(q: string, limit = 20): Promise<DialogEntry[]> {
-  const client = await getTelegramClient();
-
+export async function searchContacts(client: TelegramClient, q: string, limit = 20): Promise<DialogEntry[]> {
   const result = await client.invoke(new Api.contacts.Search({ q, limit }));
 
   const entityMap = new Map<string, unknown>();
-  for (const chat of result.chats) {
-    entityMap.set(bigToString((chat as { id: unknown }).id), chat);
-  }
-  for (const user of result.users) {
-    entityMap.set(bigToString((user as { id: unknown }).id), user);
-  }
+  for (const chat of result.chats) entityMap.set(bigToString((chat as { id: unknown }).id), chat);
+  for (const user of result.users) entityMap.set(bigToString((user as { id: unknown }).id), user);
 
   const out: DialogEntry[] = [];
   const seen = new Set<string>();

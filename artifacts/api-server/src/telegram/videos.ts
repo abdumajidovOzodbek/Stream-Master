@@ -1,11 +1,7 @@
-import { Api } from "telegram";
+import { TelegramClient, Api } from "telegram";
 import bigInt from "big-integer";
 import path from "node:path";
-import { getTelegramClient } from "./client";
 import { logger } from "../lib/logger";
-
-// Channel videos are streamed directly from Telegram to the client. Nothing is
-// persisted on the server filesystem.
 
 export interface VideoMetadata {
   messageId: number;
@@ -52,24 +48,22 @@ function extractVideoMeta(message: Api.Message): VideoMetadata | null {
     return ".mp4";
   })();
 
-  const fileName = `${message.id}${ext}`;
-
   return {
     messageId: message.id,
     fileSize: doc.size != null ? Number(doc.size as unknown as bigint | number) : null,
     duration: videoAttr?.duration ?? null,
     mimeType: doc.mimeType ?? null,
-    fileName,
+    fileName: `${message.id}${ext}`,
     date: message.date,
     caption: message.message || null,
   };
 }
 
 export async function listChannelVideos(
+  client: TelegramClient,
   channel: string,
   limit = 50,
 ): Promise<VideoMetadata[]> {
-  const client = await getTelegramClient();
   const entity = await client.getEntity(channel);
   const messages = await client.getMessages(entity, { limit });
 
@@ -89,13 +83,13 @@ export interface OpenedVideo {
   streamRange: (offset: number, length: number) => AsyncIterable<Buffer>;
 }
 
-const STREAM_CHUNK_SIZE = 512 * 1024; // 512 KB — power of 2, ≤ 1MB
+const STREAM_CHUNK_SIZE = 512 * 1024;
 
 export async function openChannelVideo(
+  client: TelegramClient,
   channel: string,
   messageId: number,
 ): Promise<OpenedVideo | null> {
-  const client = await getTelegramClient();
   const entity = await client.getEntity(channel);
   const messages = await client.getMessages(entity, { ids: [messageId] });
   const message = messages[0];
@@ -152,10 +146,7 @@ export async function openChannelVideo(
         if (remaining <= 0) break;
         let chunk = raw as Buffer;
         if (leadingSkip > 0) {
-          if (leadingSkip >= chunk.length) {
-            leadingSkip -= chunk.length;
-            continue;
-          }
+          if (leadingSkip >= chunk.length) { leadingSkip -= chunk.length; continue; }
           chunk = chunk.subarray(leadingSkip);
           leadingSkip = 0;
         }
