@@ -57,11 +57,7 @@ router.get("/auth/status", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/send-code", async (req: Request, res: Response) => {
-  const sessionId = req.sessionId;
-  if (!sessionId) {
-    res.status(400).json({ error: "No session ID provided (X-Session-ID header missing)" });
-    return;
-  }
+  const sessionId = req.sessionId!;
   const body = (req.body ?? {}) as { phone?: string };
   const phone = body.phone?.trim();
   if (!phone) {
@@ -77,11 +73,7 @@ router.post("/auth/send-code", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/sign-in", async (req: Request, res: Response) => {
-  const sessionId = req.sessionId;
-  if (!sessionId) {
-    res.status(400).json({ error: "No session ID provided (X-Session-ID header missing)" });
-    return;
-  }
+  const sessionId = req.sessionId!;
   const body = (req.body ?? {}) as {
     phone?: string;
     phoneCodeHash?: string;
