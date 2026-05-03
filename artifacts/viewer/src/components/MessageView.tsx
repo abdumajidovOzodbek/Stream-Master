@@ -181,12 +181,12 @@ function VoiceWaveform({ url, duration, out }: { url: string; duration: number |
         <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors", btnCls)}>
           <Play className="h-5 w-5 translate-x-px fill-current" />
         </div>
-        <div className="flex min-w-[120px] flex-col gap-0.5">
-          <div className="flex h-8 items-end gap-px">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex h-8 items-end gap-px overflow-hidden">
             {STATIC_BARS.map((h, i) => (
               <span
                 key={i}
-                className={cn("w-[2px] rounded-[1px]", out ? "bg-white/30" : "bg-muted-foreground/25")}
+                className={cn("w-[2px] shrink-0 rounded-[1px]", out ? "bg-white/30" : "bg-muted-foreground/25")}
                 style={{ height: `${Math.round(h * 24)}px` }}
               />
             ))}
@@ -244,10 +244,12 @@ function VoiceWaveform({ url, duration, out }: { url: string; duration: number |
           ? <Pause className="h-5 w-5 fill-current" />
           : <Play className="h-5 w-5 translate-x-px fill-current" />}
       </button>
-      <div className="flex min-w-[120px] flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <svg
-          width={W}
+          width="100%"
           height={H}
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
           className="cursor-pointer"
           onClick={seek}
         >
@@ -294,9 +296,9 @@ function PhotoBlock({
   const [load, setLoad] = useState(false);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const ratio = width && height ? width / height : 4 / 3;
-  // Cap at 240px wide so it fits inside mobile bubbles (max-w-[90%] of ~360px screen)
-  const w = 240;
-  const h = Math.min(Math.round(w / ratio), 200);
+  // Cap at 240px wide; use fluid width so it never overflows narrow screens
+  const maxW = 240;
+  const h = Math.min(Math.round(maxW / ratio), 200);
 
   if (!load) {
     return (
@@ -316,14 +318,14 @@ function PhotoBlock({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl bg-black/5 dark:bg-white/5">
+    <div className="relative w-full max-w-[240px] overflow-hidden rounded-xl bg-black/5 dark:bg-white/5">
       {state === "loading" && (
-        <div className="flex items-center justify-center" style={{ width: w, height: h }}>
+        <div className="flex w-full max-w-[240px] items-center justify-center" style={{ height: h }}>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
       {state === "error" && (
-        <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground" style={{ width: w, height: h }}>
+        <div className="flex w-full max-w-[240px] flex-col items-center justify-center gap-2 text-muted-foreground" style={{ height: h }}>
           <ImageOff className="h-6 w-6" />
           <span className="text-[11px]">Could not load image</span>
           <button type="button" onClick={() => setState("loading")} className="text-[11px] text-primary underline">
@@ -390,7 +392,7 @@ function VideoBlock({ media }: { media: Extract<MessageMedia, { kind: "video" }>
 
   return (
     <div className="space-y-2">
-      <video controls autoPlay preload="metadata" src={media.url} className="max-h-96 w-full max-w-md rounded-lg bg-black" />
+      <video controls autoPlay preload="metadata" src={media.url} className="max-h-96 w-full max-w-[320px] rounded-lg bg-black" />
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         {media.duration && <span>{formatDuration(media.duration)}</span>}
         {media.size && <span>· {formatBytes(media.size)}</span>}
@@ -432,7 +434,7 @@ function AudioBlock({ media, out }: { media: Extract<MessageMedia, { kind: "audi
   return (
     <div className="flex items-center gap-3 rounded-lg bg-muted p-3">
       <Music className="h-5 w-5 shrink-0" />
-      <audio controls autoPlay src={media.url} className="h-8 max-w-[260px]" />
+      <audio controls autoPlay src={media.url} className="h-8 w-full max-w-[260px]" />
       <span className="text-[11px] text-muted-foreground">{formatDuration(media.duration)}</span>
     </div>
   );
@@ -449,14 +451,14 @@ function StickerBlock({ url }: { url: string }) {
       <button
         type="button"
         onClick={() => setLoad(true)}
-        className="flex h-32 w-32 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        className="flex h-28 w-full max-w-[112px] flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
       >
         <Sticker className="h-7 w-7" />
         <span className="text-[11px]">Load sticker</span>
       </button>
     );
   }
-  return <img src={url} alt="Sticker" className="h-32 w-32 object-contain" />;
+  return <img src={url} alt="Sticker" className="h-auto w-full max-w-[112px] object-contain" />;
 }
 
 // ---------------------------------------------------------------------------
