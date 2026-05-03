@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useCallback, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Message } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,44 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const qc = useQueryClient();
+
+  // ── Typing indicator state ──────────────────────────────────────────
+  // Track whether we've sent a "typing" action so we don't spam the API.
+  const isTypingRef = useRef(false);
+  const cancelTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopTyping = useCallback(() => {
+    if (!isTypingRef.current) return;
+    if (cancelTypingTimerRef.current) {
+      clearTimeout(cancelTypingTimerRef.current);
+      cancelTypingTimerRef.current = null;
+    }
+    api.setTyping(chatId, "cancel");
+    isTypingRef.current = false;
+  }, [chatId]);
+
+  const startTyping = useCallback(() => {
+    if (!isTypingRef.current) {
+      api.setTyping(chatId, "typing");
+      isTypingRef.current = true;
+    }
+    // Renew the auto-cancel timer (Telegram expires typing after ~6 s).
+    // We cancel a little early at 5.5 s so there's no visible gap.
+    if (cancelTypingTimerRef.current) clearTimeout(cancelTypingTimerRef.current);
+    cancelTypingTimerRef.current = setTimeout(stopTyping, 5_500);
+  }, [chatId, stopTyping]);
+
+  // Stop typing when the user switches chats
+  useEffect(() => {
+    return () => {
+      if (isTypingRef.current) {
+        api.setTyping(chatId, "cancel");
+        isTypingRef.current = false;
+      }
+      if (cancelTypingTimerRef.current) clearTimeout(cancelTypingTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   // ── Draft: load when chatId changes ────────────────────────────
   useEffect(() => {
@@ -136,6 +174,9 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
 
   function submit() {
     if (isPending) return;
+    // Cancel typing before sending — Telegram expects explicit cancel or
+    // the actual message delivery clears it anyway, but being explicit is cleaner.
+    stopTyping();
     if (attachedFile) { sendMedia.mutate(attachedFile); return; }
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -266,7 +307,17 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
         <textarea
           ref={taRef}
           value={text}
-          onChange={(e) => { setText(e.target.value); autoResize(); }}
+          onChange={(e) => {
+            const newText = e.target.value;
+            setText(newText);
+            autoResize();
+            // Send typing or cancel depending on whether there's content.
+            // Only for non-scheduled messages (channels often restrict typing in scheduled context).
+            if (!scheduleDate && !attachedFile) {
+              if (newText.trim()) startTyping();
+              else stopTyping();
+            }
+          }}
           onKeyDown={onKeyDown}
           placeholder={
             scheduleDate ? "Type a scheduled message…"

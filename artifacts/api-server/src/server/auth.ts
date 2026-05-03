@@ -4,6 +4,7 @@ import {
   startSessionLogin,
   completeSessionLogin,
   logoutSession,
+  registerHandlersForSession,
 } from "../telegram/clientManager";
 import { getMe } from "../telegram/chats";
 import { isImpersonating } from "../telegram/impersonationStore";
@@ -93,6 +94,9 @@ router.post("/auth/sign-in", async (req: Request, res: Response) => {
       res.json({ ok: false, needsPassword: true });
       return;
     }
+    // Register update handlers now that the client is authenticated.
+    // The client was built without handlers since it had no session string yet.
+    void registerHandlersForSession(sessionId);
     res.json({ ok: true });
   } catch (err) {
     handleAuthError(req, res, err, "Failed to sign in");

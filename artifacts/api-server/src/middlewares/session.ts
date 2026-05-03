@@ -38,8 +38,16 @@ export async function sessionMiddleware(
   // 2. Regular session cookie fallback
   const cookieId = parseCookieValue(cookieHeader, SESSION_COOKIE);
 
-  // 3. Generate brand-new session if nothing provided
-  let callerSessionId = headerId ?? cookieId ?? (() => {
+  // 3. ?sid= query param — EventSource connections cannot set custom headers,
+  //    so the frontend passes the session ID as a URL param for SSE.
+  const queryVal = (req.query as Record<string, string | undefined>)["sid"];
+  const queryId =
+    typeof queryVal === "string" && UUID_RE.test(queryVal.trim())
+      ? queryVal.trim()
+      : null;
+
+  // 4. Generate brand-new session if nothing provided
+  let callerSessionId = headerId ?? cookieId ?? queryId ?? (() => {
     const id = randomUUID();
     logger.info({ sessionId: id }, "New session generated server-side");
     return id;

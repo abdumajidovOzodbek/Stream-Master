@@ -327,6 +327,18 @@ function buildMessageEntry(
 }
 
 // ---------------------------------------------------------------------------
+// Exported helpers used by other server modules
+// ---------------------------------------------------------------------------
+
+/** Thin public wrapper around resolveEntity so other modules can use it. */
+export async function resolveEntityPublic(
+  client: TelegramClient,
+  chatId: string,
+): Promise<{ entity: Api.TypeEntityLike; type: "user" | "chat" | "channel"; id: string }> {
+  return resolveEntity(client, chatId);
+}
+
+// ---------------------------------------------------------------------------
 // Exported functions (all accept a TelegramClient as first param)
 // ---------------------------------------------------------------------------
 

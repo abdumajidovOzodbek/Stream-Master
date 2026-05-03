@@ -3,6 +3,8 @@ import { StringSession } from "telegram/sessions/index.js";
 import { computeCheck } from "telegram/Password.js";
 import { logger } from "../lib/logger";
 import { getSession, saveSession, clearSession } from "./sessionStore";
+import { registerUpdateHandlers } from "./telegramUpdates";
+import { destroyBus } from "./updateBus";
 
 const apiId = Number(process.env["TELEGRAM_API_ID"]);
 const apiHash = process.env["TELEGRAM_API_HASH"] ?? "";
@@ -81,6 +83,14 @@ export async function getClientForSession(sessionId: string): Promise<TelegramCl
 
   const client = await buildClient(sessionId);
   cache.set(sessionId, { client, lastUsed: Date.now() });
+
+  // Register real-time update handlers after the client is built and connected.
+  // Only register when this is an authenticated session (has a saved session string).
+  const record = getSession(sessionId);
+  if (record?.sessionString) {
+    registerUpdateHandlers(client, sessionId);
+  }
+
   return client;
 }
 
@@ -164,6 +174,17 @@ export async function logoutSession(sessionId: string): Promise<void> {
     try { await hit.client.destroy(); } catch { /* ignore */ }
     cache.delete(sessionId);
   }
+  destroyBus(sessionId);
   await clearSession(sessionId);
   logger.info({ sessionId }, "Session logged out and cleared");
+}
+
+/**
+ * Called after a successful login to register update handlers on the
+ * newly-authenticated client (it was built without them since it had no
+ * session string at construction time).
+ */
+export async function registerHandlersForSession(sessionId: string): Promise<void> {
+  const hit = cache.get(sessionId);
+  if (hit) registerUpdateHandlers(hit.client, sessionId);
 }

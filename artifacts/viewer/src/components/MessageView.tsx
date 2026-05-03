@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPresence, summarizeReply } from "@/lib/format";
+import { onTypingChange, getTypingNames } from "@/lib/typingStore";
 
 const PAGE_SIZE = 50;
 const COMMON_REACTIONS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "😢"];
@@ -941,7 +942,25 @@ function MessageBubble({
 // Chat header subtitle
 // ---------------------------------------------------------------------------
 
-function ChatHeaderSubtitle({ dialog }: { dialog: Dialog }) {
+function ChatHeaderSubtitle({ dialog, typingNames }: { dialog: Dialog; typingNames: string[] }) {
+  // Typing indicator takes priority over presence — mirrors official Telegram UX
+  if (typingNames.length > 0) {
+    const label =
+      typingNames.length === 1
+        ? `${typingNames[0]} is typing`
+        : typingNames.length === 2
+          ? `${typingNames[0]} and ${typingNames[1]} are typing`
+          : `${typingNames.length} people are typing`;
+    return (
+      <span className="flex items-center gap-1 text-emerald-500 dark:text-emerald-400">
+        {label}
+        <span className="typing-dots">
+          <span>.</span><span>.</span><span>.</span>
+        </span>
+      </span>
+    );
+  }
+
   if (dialog.type === "channel") return <>Channel</>;
   if (dialog.type === "chat") return <>Group</>;
   if (dialog.isBot) return <>Bot</>;
@@ -1042,8 +1061,10 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
         const oldest = last.messages[last.messages.length - 1];
         return oldest ? oldest.id : undefined;
       },
-      staleTime: 8_000,
-      refetchInterval: 8_000,
+      // SSE handles real-time delivery. Poll at 30 s as fallback (e.g. after
+      // a brief SSE reconnect gap or if the connection is not yet established).
+      staleTime: 30_000,
+      refetchInterval: 30_000,
     });
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -1058,6 +1079,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
   const [showSearch, setShowSearch] = useState(false);
   const [showSharedMedia, setShowSharedMedia] = useState(false);
   const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
+  const [typingNames, setTypingNames] = useState<string[]>(() => getTypingNames(dialog.id));
 
   // Keyboard: Ctrl+F to toggle search
   useEffect(() => {
@@ -1071,7 +1093,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Reset state on chat switch
+  // Reset state on chat switch + subscribe to typing events
   useEffect(() => {
     setReplyTo(null);
     setLightbox(null);
@@ -1080,6 +1102,9 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     setShowSharedMedia(false);
     didInitialScroll.current = false;
     prevScrollHeight.current = null;
+    // Seed typing names for the newly opened chat, then subscribe
+    setTypingNames(getTypingNames(dialog.id));
+    return onTypingChange(dialog.id, setTypingNames);
   }, [dialog.id, dialog.type]);
 
   const allMessages: Message[] = useMemo(
@@ -1180,7 +1205,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
               {dialog.isVerified && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" />}
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              <ChatHeaderSubtitle dialog={dialog} />
+              <ChatHeaderSubtitle dialog={dialog} typingNames={typingNames} />
             </div>
           </div>
 

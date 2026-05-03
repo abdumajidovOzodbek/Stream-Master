@@ -203,6 +203,15 @@ export const api = {
   setReaction: (chatId: string, msgId: number, emoji: string | null) =>
     postJson<{ ok: true }>(`/api/reactions/${encodeURIComponent(chatId)}/${msgId}`, { emoji }),
 
+  /**
+   * Send a typing action to Telegram.
+   * action: "typing" | "cancel" | "upload_photo" | "upload_video" | "upload_document" | "record_voice"
+   * Fire-and-forget — errors are silently swallowed since typing is non-critical.
+   */
+  setTyping: (chatId: string, action: "typing" | "cancel"): void => {
+    void postJson<{ ok: true }>("/api/typing", { chatId, action }).catch(() => undefined);
+  },
+
   markRead: (chatId: string, maxId?: number) =>
     postJson<{ ok: true }>(
       `/api/dialogs/${encodeURIComponent(chatId)}/read`,

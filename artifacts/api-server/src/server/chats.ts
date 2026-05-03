@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { type TelegramClient } from "telegram";
+import { type TelegramClient, Api } from "telegram";
 import multer from "multer";
 import {
   getMe,
@@ -16,6 +16,7 @@ import {
   sendMediaFile,
   markChatRead,
   setMessageReaction,
+  resolveEntityPublic,
 } from "../telegram/chats";
 import { streamRangedResponse } from "../lib/range";
 
@@ -198,6 +199,45 @@ router.post("/reactions/:chatId/:msgId", async (req: Request, res: Response) => 
     res.json(await setMessageReaction(client, chatId, msgId, emoji));
   } catch (err) {
     handleError(req, res, err, "Failed to set reaction");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Typing indicator
+// ---------------------------------------------------------------------------
+
+router.post("/typing", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const body = (req.body ?? {}) as { chatId?: string; action?: string };
+  const chatId = body.chatId?.trim();
+  const action = (body.action ?? "typing").trim();
+  if (!chatId) { res.status(400).json({ error: "chatId is required" }); return; }
+
+  try {
+    const { entity } = await resolveEntityPublic(client, chatId);
+
+    let typingAction: Api.TypeSendMessageAction;
+    switch (action) {
+      case "cancel":         typingAction = new Api.SendMessageCancelAction(); break;
+      case "upload_photo":   typingAction = new Api.SendMessageUploadPhotoAction({ progress: 0 }); break;
+      case "upload_video":   typingAction = new Api.SendMessageUploadVideoAction({ progress: 0 }); break;
+      case "upload_document":typingAction = new Api.SendMessageUploadDocumentAction({ progress: 0 }); break;
+      case "record_voice":   typingAction = new Api.SendMessageRecordAudioAction(); break;
+      default:               typingAction = new Api.SendMessageTypingAction(); break;
+    }
+
+    await client.invoke(
+      new Api.messages.SetTyping({
+        peer: entity as unknown as Api.TypeInputPeer,
+        action: typingAction,
+      }),
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    // Typing errors are non-critical — log at debug level and return ok
+    req.log.debug({ err, chatId }, "SetTyping failed (non-critical)");
+    res.json({ ok: true });
   }
 });
 

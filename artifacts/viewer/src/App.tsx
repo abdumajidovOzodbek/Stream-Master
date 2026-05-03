@@ -26,6 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { api, adminApi, type Dialog } from "@/lib/api";
+import { useSSE } from "@/hooks/use-sse";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -127,11 +128,14 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me, staleTime: Infinity });
 
+  // Mount SSE — real-time push updates. Dialogs polling kept at 2 min as fallback.
+  useSSE();
+
   const { data: dialogsData } = useQuery({
     queryKey: ["dialogs"],
     queryFn: () => api.dialogs(150),
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   });
 
   const dialogs = dialogsData?.dialogs ?? [];
