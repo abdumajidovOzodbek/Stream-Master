@@ -261,28 +261,29 @@ function PhotoBlock({
   const [load, setLoad] = useState(false);
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const ratio = width && height ? width / height : 4 / 3;
-  const w = 280;
-  const h = Math.round(w / ratio);
+  // Cap at 240px wide so it fits inside mobile bubbles (max-w-[90%] of ~360px screen)
+  const w = 240;
+  const h = Math.min(Math.round(w / ratio), 200);
 
   if (!load) {
     return (
       <button
         type="button"
         onClick={() => setLoad(true)}
-        className="group flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/40 p-4 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-        style={{ width: w, height: h }}
+        className="group flex w-full max-w-[240px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/40 py-4 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        style={{ height: h }}
       >
-        <ImageIcon className="h-8 w-8" />
-        <span className="text-xs font-medium">Load photo</span>
+        <ImageIcon className="h-6 w-6" />
+        <span className="text-[11px] font-medium">Tap to load photo</span>
         {width && height && (
-          <span className="text-[10px] opacity-70">{width} × {height}</span>
+          <span className="text-[10px] opacity-60">{width} × {height}</span>
         )}
       </button>
     );
   }
 
   return (
-    <div className="relative overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
+    <div className="relative overflow-hidden rounded-xl bg-black/5 dark:bg-white/5">
       {state === "loading" && (
         <div className="flex items-center justify-center" style={{ width: w, height: h }}>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -304,7 +305,7 @@ function PhotoBlock({
         onError={() => setState("error")}
         onClick={() => state === "loaded" && onOpenLightbox(url)}
         className={cn(
-          "max-h-96 max-w-full cursor-zoom-in rounded-lg object-cover transition-opacity hover:opacity-95",
+          "max-h-72 max-w-full cursor-zoom-in rounded-xl object-cover transition-opacity hover:opacity-95",
           state !== "loaded" && "hidden",
         )}
       />
@@ -751,11 +752,12 @@ function MessageBubble({
         <div className="relative">
           <div
             className={cn(
-              // Mobile: 90% width so messages are readable; desktop: 75%
-              "relative max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[75%]",
+              // min-w-[100px] ensures very short messages ("Hi", emoji) always have
+              // room for the footer row without wrapping.
+              "relative min-w-[100px] max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[75%]",
               out
                 ? "rounded-br-sm bubble-out text-primary-foreground shadow-md"
-                : "rounded-bl-sm bg-card shadow-sm",
+                : "rounded-bl-sm border border-border/60 bg-card shadow-sm dark:border-border/30",
               isChannel && !out && "sm:max-w-[85%]",
             )}
           >
@@ -773,9 +775,9 @@ function MessageBubble({
               <Reply className="h-3.5 w-3.5" />
             </button>
 
-            {/* Sender name (top of run) */}
+            {/* Sender name (top of run) — truncated so long names don't wrap */}
             {!out && !isChannel && showName && (
-              <div className={cn("mb-1 text-xs font-semibold", nameColor)}>
+              <div className={cn("mb-0.5 max-w-[180px] truncate text-xs font-semibold", nameColor)}>
                 {senderName}
               </div>
             )}
@@ -818,16 +820,16 @@ function MessageBubble({
               return match ? <OgCard url={match[0]} out={out} /> : null;
             })()}
 
-            {/* Footer: edited · views · time · status */}
+            {/* Footer: edited · views · time · status — must not wrap */}
             <div
               className={cn(
-                "mt-1 flex items-center justify-end gap-1.5 text-[10px]",
+                "mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[10px] leading-none",
                 out ? "text-primary-foreground/70" : "text-muted-foreground",
               )}
             >
               {msg.editDate && (
                 <span
-                  className="flex items-center gap-0.5"
+                  className="flex shrink-0 items-center gap-0.5"
                   title={`Edited ${new Date(msg.editDate * 1000).toLocaleString()}`}
                 >
                   <Pencil className="h-2.5 w-2.5" />
@@ -835,12 +837,12 @@ function MessageBubble({
                 </span>
               )}
               {msg.views != null && (
-                <span className="flex items-center gap-0.5">
+                <span className="flex shrink-0 items-center gap-0.5">
                   <Eye className="h-3 w-3" />
                   {msg.views.toLocaleString()}
                 </span>
               )}
-              <span>{formatTime(msg.date)}</span>
+              <span className="shrink-0">{formatTime(msg.date)}</span>
               <MessageStatus msg={msg} readOutboxMaxId={dialog.readOutboxMaxId} />
             </div>
           </div>
@@ -1189,7 +1191,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           )}
 
           {allMessages.length > 0 && (
-            <div className="space-y-1 px-4 py-4">
+            <div className="space-y-0 px-2 py-3 sm:px-4 sm:py-4">
               <div ref={topSentinelRef} />
               {hasNextPage && (
                 <div className="flex justify-center py-2 text-xs text-muted-foreground">
@@ -1224,7 +1226,13 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                 const showAvatar = !sameAsNext;
 
                 return (
-                  <div key={m.id} className="msg-row">
+                  <div
+                    key={m.id}
+                    className={cn(
+                      "msg-row",
+                      i === 0 ? "mt-0" : sameAsPrev ? "mt-0.5" : "mt-2.5",
+                    )}
+                  >
                     {showDate && (
                       <div className="my-4 flex justify-center">
                         <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
