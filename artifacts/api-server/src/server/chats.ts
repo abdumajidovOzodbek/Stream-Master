@@ -113,13 +113,14 @@ router.post(
   upload.single("file"),
   async (req: Request, res: Response) => {
     const file = req.file;
-    const chatId = (req.body as { chatId?: string }).chatId?.trim();
+    const body = (req.body ?? {}) as { chatId?: string; caption?: string; replyToMsgId?: string };
+    const chatId = body.chatId?.trim();
     if (!file || !chatId) {
       res.status(400).json({ error: "file and chatId are required" });
       return;
     }
-    const caption = (req.body as { caption?: string }).caption?.trim();
-    const replyToMsgId = Number((req.body as { replyToMsgId?: string }).replyToMsgId) || undefined;
+    const caption = body.caption?.trim();
+    const replyToMsgId = Number(body.replyToMsgId) || undefined;
     try {
       res.json(
         await sendMediaFile(chatId, file.buffer, file.originalname, caption, replyToMsgId),
