@@ -748,17 +748,21 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Bubble */}
-        <div className="relative">
+        {/* Bubble — max-w lives on the outer div so it correctly constrains against the row */}
+        <div
+          className={cn(
+            "relative max-w-[88%] sm:max-w-[72%]",
+            isChannel && !out && "sm:max-w-[82%]",
+          )}
+        >
           <div
             className={cn(
-              // min-w-[100px] ensures very short messages ("Hi", emoji) always have
-              // room for the footer row without wrapping.
-              "relative min-w-[100px] max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[75%]",
+              // min-w ensures very short messages ("Hi", "ok") always have room
+              // for the timestamp + status footer without wrapping.
+              "relative min-w-[108px] rounded-2xl px-3.5 py-2 text-sm",
               out
-                ? "rounded-br-sm bubble-out text-primary-foreground shadow-md"
-                : "rounded-bl-sm border border-border/60 bg-card shadow-sm dark:border-border/30",
-              isChannel && !out && "sm:max-w-[85%]",
+                ? "rounded-br-sm bubble-out text-primary-foreground"
+                : "rounded-bl-sm bubble-in",
             )}
           >
             {/* Hover reply button */}
@@ -777,7 +781,7 @@ function MessageBubble({
 
             {/* Sender name (top of run) — truncated so long names don't wrap */}
             {!out && !isChannel && showName && (
-              <div className={cn("mb-0.5 max-w-[180px] truncate text-xs font-semibold", nameColor)}>
+              <div className={cn("mb-1 max-w-[160px] truncate text-[11px] font-semibold leading-tight", nameColor)}>
                 {senderName}
               </div>
             )}
@@ -811,7 +815,7 @@ function MessageBubble({
 
             {/* Text */}
             {msg.text && (
-              <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+              <div className="whitespace-pre-wrap break-words leading-[1.45]">{msg.text}</div>
             )}
 
             {/* Link preview (OG card) — only when no media and URL found in text */}
@@ -823,8 +827,8 @@ function MessageBubble({
             {/* Footer: edited · views · time · status — must not wrap */}
             <div
               className={cn(
-                "mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[10px] leading-none",
-                out ? "text-primary-foreground/70" : "text-muted-foreground",
+                "mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[10px] leading-tight select-none",
+                out ? "text-primary-foreground/75" : "text-muted-foreground/90",
               )}
             >
               {msg.editDate && (

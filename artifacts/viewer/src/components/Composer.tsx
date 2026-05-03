@@ -169,8 +169,8 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
 
   return (
     <div
-      className="border-t bg-card/80 px-3 py-2 backdrop-blur"
-      style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      className="border-t bg-background/90 px-3 py-2.5 backdrop-blur-lg"
+      style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}
     >
       {(sendError || fileError) && (
         <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
@@ -276,8 +276,9 @@ export function Composer({ chatId, chatType, replyTo, onClearReply, onSent }: Co
           rows={1}
           style={{ fontSize: "16px" }}
           className={cn(
-            "flex-1 resize-none rounded-2xl border bg-background px-4 py-2.5 leading-5",
-            "outline-none transition-colors focus:border-primary",
+            "flex-1 resize-none rounded-2xl border bg-muted/60 px-4 py-2.5 leading-[1.5]",
+            "outline-none transition-colors placeholder:text-muted-foreground/60",
+            "focus:border-primary/60 focus:bg-background",
             "max-h-40 min-h-[44px]",
           )}
           disabled={isPending}
