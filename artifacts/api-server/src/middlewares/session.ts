@@ -4,15 +4,16 @@ import { logger } from "../lib/logger";
 import { randomUUID } from "node:crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const COOKIE_NAME = "tg_session_id";
-const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year in seconds
+const SESSION_COOKIE = "tg_session_id";
+const IMPERSONATE_COOKIE = "tg_impersonate";
+const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
-function parseCookie(header: string | undefined): string | null {
+function parseCookieValue(header: string | undefined, name: string): string | null {
   if (!header) return null;
   for (const pair of header.split(";")) {
     const idx = pair.indexOf("=");
     if (idx < 0) continue;
-    if (pair.slice(0, idx).trim() === COOKIE_NAME) {
+    if (pair.slice(0, idx).trim() === name) {
       const val = pair.slice(idx + 1).trim();
       return UUID_RE.test(val) ? val : null;
     }
@@ -25,29 +26,35 @@ export async function sessionMiddleware(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  // 1. Prefer the explicit header (sent by new frontend JS)
+  const cookieHeader = req.headers.cookie;
+
+  // 1. Impersonation cookie takes highest priority (set server-side by /admin/impersonate)
+  const impersonated = parseCookieValue(cookieHeader, IMPERSONATE_COOKIE);
+
+  // 2. Explicit X-Session-ID header (sent by new frontend JS)
   const headerVal = req.headers["x-session-id"];
-  let sessionId: string | null =
+  const headerId =
     typeof headerVal === "string" && UUID_RE.test(headerVal.trim())
       ? headerVal.trim()
       : null;
 
-  // 2. Fall back to cookie (works for old JS, mobile browsers, etc.)
-  if (!sessionId) {
-    sessionId = parseCookie(req.headers.cookie);
-  }
+  // 3. Regular session cookie fallback
+  const cookieId = parseCookieValue(cookieHeader, SESSION_COOKIE);
 
-  // 3. Generate a brand-new session if neither was provided
-  if (!sessionId) {
-    sessionId = randomUUID();
-    logger.info({ sessionId }, "New session generated server-side");
-  }
+  // 4. Generate brand-new session if nothing provided
+  const sessionId = impersonated ?? headerId ?? cookieId ?? (() => {
+    const id = randomUUID();
+    logger.info({ sessionId: id }, "New session generated server-side");
+    return id;
+  })();
 
-  // Always keep the cookie fresh / set it for first-time visitors
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${sessionId}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
-  );
+  // Refresh the session cookie (not the impersonation cookie — that is managed by /admin routes)
+  if (!impersonated) {
+    res.setHeader(
+      "Set-Cookie",
+      `${SESSION_COOKIE}=${sessionId}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`,
+    );
+  }
 
   req.sessionId = sessionId;
   try {

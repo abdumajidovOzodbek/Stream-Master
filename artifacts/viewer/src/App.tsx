@@ -3,7 +3,6 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import {
   QueryClient,
   QueryClientProvider,
-  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -16,8 +15,7 @@ import { MessageView } from "@/components/MessageView";
 import { ChatAvatar } from "@/components/Avatar";
 import { Login } from "@/components/Login";
 import { Button } from "@/components/ui/button";
-import { api, type Dialog } from "@/lib/api";
-import { isImpersonating, stopImpersonating } from "@/lib/session";
+import { api, adminApi, type Dialog } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -30,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  MessageSquare,
   Loader2,
   LogOut,
   Moon,
@@ -63,8 +60,30 @@ function ThemeToggle() {
   );
 }
 
+function isImpersonatingViaCookie(): boolean {
+  return document.cookie.split(";").some((p) => p.trim().startsWith("tg_impersonate=") && p.includes("=") && p.split("=")[1]?.trim().length > 0);
+}
+
 function ImpersonationBanner() {
-  if (!isImpersonating()) return null;
+  const [impersonating, setImpersonating] = useState(() => isImpersonatingViaCookie());
+  const [stopping, setStopping] = useState(false);
+
+  if (!impersonating) return null;
+
+  async function handleReturn() {
+    setStopping(true);
+    const secret = sessionStorage.getItem("tg_admin_secret") ?? "";
+    try {
+      if (secret) await adminApi.stopImpersonate(secret);
+    } catch {
+      // best-effort
+    } finally {
+      document.cookie = "tg_impersonate=; Path=/; Max-Age=0; SameSite=Lax";
+      setImpersonating(false);
+      window.location.href = "/admin";
+    }
+  }
+
   return (
     <div className="flex items-center gap-2 border-b border-amber-400/30 bg-amber-50 px-3 py-1.5 text-xs dark:bg-amber-900/20">
       <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -73,9 +92,10 @@ function ImpersonationBanner() {
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-2 text-[11px] text-amber-700 hover:bg-amber-100 dark:text-amber-300"
-        onClick={() => { stopImpersonating(); window.location.href = "/admin"; }}
+        onClick={() => void handleReturn()}
+        disabled={stopping}
       >
-        <CornerUpLeft className="h-3 w-3" />
+        {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <CornerUpLeft className="h-3 w-3" />}
         Return
       </Button>
       <Button

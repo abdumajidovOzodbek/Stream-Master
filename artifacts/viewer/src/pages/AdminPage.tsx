@@ -1,12 +1,5 @@
 import { useState, useEffect } from "react";
 import { adminApi, type AdminSession } from "@/lib/api";
-import {
-  startImpersonating,
-  stopImpersonating,
-  isImpersonating,
-  getOriginalSessionId,
-  getSessionId,
-} from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -36,14 +29,27 @@ function formatLastSeen(ts: number): string {
   return `${days}d ago`;
 }
 
+function getImpersonateCookie(): string | null {
+  for (const pair of document.cookie.split(";")) {
+    const idx = pair.indexOf("=");
+    if (idx < 0) continue;
+    if (pair.slice(0, idx).trim() === "tg_impersonate") {
+      return pair.slice(idx + 1).trim() || null;
+    }
+  }
+  return null;
+}
+
 function SessionCard({
   session,
-  isCurrentSession,
+  isImpersonating,
   onViewAs,
+  loading,
 }: {
   session: AdminSession;
-  isCurrentSession: boolean;
+  isImpersonating: boolean;
   onViewAs: () => void;
+  loading: boolean;
 }) {
   const displayName =
     session.firstName ??
@@ -63,7 +69,7 @@ function SessionCard({
     <div
       className={cn(
         "flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors",
-        isCurrentSession && "border-primary/40 bg-primary/5",
+        isImpersonating && "border-amber-400/40 bg-amber-50 dark:bg-amber-900/20",
       )}
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -73,9 +79,9 @@ function SessionCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm font-semibold text-foreground">{displayName}</span>
-          {isCurrentSession && (
-            <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              current
+          {isImpersonating && (
+            <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              viewing
             </span>
           )}
         </div>
@@ -83,12 +89,20 @@ function SessionCard({
         <p className="text-[11px] text-muted-foreground/60">Last active: {formatLastSeen(session.lastSeen)}</p>
       </div>
 
-      {!isCurrentSession && (
-        <Button size="sm" variant="outline" onClick={onViewAs} className="shrink-0 gap-1.5 text-xs">
+      <Button
+        size="sm"
+        variant={isImpersonating ? "default" : "outline"}
+        onClick={onViewAs}
+        disabled={loading}
+        className="shrink-0 gap-1.5 text-xs"
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
           <Eye className="h-3.5 w-3.5" />
-          View as
-        </Button>
-      )}
+        )}
+        {isImpersonating ? "Viewing" : "View as"}
+      </Button>
     </div>
   );
 }
@@ -101,8 +115,9 @@ export default function AdminPage() {
   const [sessions, setSessions] = useState<AdminSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const impersonating = isImpersonating();
-  const currentSessionId = getSessionId();
+  const [viewingAs, setViewingAs] = useState<string | null>(() => getImpersonateCookie());
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
 
   async function verify() {
     if (!secret.trim()) return;
@@ -140,14 +155,30 @@ export default function AdminPage() {
     if (verified) void loadSessions();
   }, [verified]);
 
-  function handleViewAs(sessionId: string) {
-    startImpersonating(sessionId);
-    window.location.href = "/";
+  async function handleViewAs(targetSessionId: string) {
+    setSwitchingTo(targetSessionId);
+    try {
+      await adminApi.impersonate(secret.trim(), targetSessionId);
+      // Cookie is now set server-side — navigate to home to see target's account
+      window.location.href = "/";
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to switch session");
+      setSwitchingTo(null);
+    }
   }
 
-  function handleReturn() {
-    stopImpersonating();
-    window.location.href = "/admin";
+  async function handleReturn() {
+    setStopping(true);
+    try {
+      await adminApi.stopImpersonate(secret.trim());
+    } catch {
+      // Best-effort — clear cookie client-side too
+      document.cookie = "tg_impersonate=; Path=/; Max-Age=0; SameSite=Lax";
+    } finally {
+      setStopping(false);
+      setViewingAs(null);
+      window.location.href = "/admin";
+    }
   }
 
   return (
@@ -173,7 +204,7 @@ export default function AdminPage() {
         <div className="mx-auto max-w-lg space-y-4">
 
           {/* Impersonation banner */}
-          {impersonating && (
+          {viewingAs && (
             <div className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-50 px-4 py-3 dark:bg-amber-900/20">
               <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
               <div className="min-w-0 flex-1 text-sm text-amber-800 dark:text-amber-300">
@@ -182,11 +213,16 @@ export default function AdminPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleReturn}
+                onClick={() => void handleReturn()}
+                disabled={stopping}
                 className="shrink-0 gap-1.5 border-amber-400/40 text-xs text-amber-700 hover:bg-amber-100 dark:text-amber-300"
               >
-                <CornerUpLeft className="h-3.5 w-3.5" />
-                Return
+                {stopping ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CornerUpLeft className="h-3.5 w-3.5" />
+                )}
+                Return to my account
               </Button>
             </div>
           )}
@@ -268,8 +304,9 @@ export default function AdminPage() {
                     <SessionCard
                       key={s.sessionId}
                       session={s}
-                      isCurrentSession={s.sessionId === currentSessionId}
-                      onViewAs={() => handleViewAs(s.sessionId)}
+                      isImpersonating={viewingAs === s.sessionId}
+                      loading={switchingTo === s.sessionId}
+                      onViewAs={() => void handleViewAs(s.sessionId)}
                     />
                   ))}
                 </div>

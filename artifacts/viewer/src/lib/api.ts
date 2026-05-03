@@ -1,12 +1,15 @@
 const _SESSION_KEY = "tg_session_id";
+const _COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 function getSessionId(): string {
   try {
     const stored = localStorage.getItem(_SESSION_KEY);
     if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored)) {
+      document.cookie = `${_SESSION_KEY}=${stored}; Path=/; Max-Age=${_COOKIE_MAX_AGE}; SameSite=Lax`;
       return stored;
     }
     const fresh = crypto.randomUUID();
     localStorage.setItem(_SESSION_KEY, fresh);
+    document.cookie = `${_SESSION_KEY}=${fresh}; Path=/; Max-Age=${_COOKIE_MAX_AGE}; SameSite=Lax`;
     return fresh;
   } catch {
     return "00000000-0000-0000-0000-000000000000";
@@ -253,4 +256,27 @@ export const adminApi = {
       }
       return r.json() as Promise<{ sessions: AdminSession[] }>;
     }),
+
+  impersonate: (secret: string, targetSessionId: string) =>
+    fetch("/api/admin/impersonate", {
+      method: "POST",
+      headers: { ...adminHeaders(secret), "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSessionId }),
+    }).then(async (r) => {
+      const body = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);
+      return body;
+    }),
+
+  stopImpersonate: (secret: string) =>
+    fetch("/api/admin/stop-impersonate", {
+      method: "POST",
+      headers: { ...adminHeaders(secret), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).then((r) => r.json()) as Promise<{ ok?: boolean }>,
+
+  impersonateStatus: (secret: string) =>
+    fetch("/api/admin/impersonate-status", {
+      headers: adminHeaders(secret),
+    }).then((r) => r.json()) as Promise<{ impersonating: string | null; ownSession: string | null }>,
 };
