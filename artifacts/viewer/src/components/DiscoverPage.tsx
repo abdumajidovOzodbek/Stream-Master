@@ -89,31 +89,32 @@ export function DiscoverPage({ onSelect }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-muted/20">
+    <div className="flex h-full flex-col overflow-y-auto chat-bg">
       {/* Hero */}
-      <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-          <MessageSquare className="h-8 w-8 text-primary" />
+      <div className="flex flex-col items-center gap-4 px-6 pb-8 pt-12 text-center">
+        <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+          <MessageSquare className="h-9 w-9" />
         </div>
-        <h2 className="text-xl font-semibold">Discover Telegram</h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Select a chat from the sidebar, or explore popular channels and bots below.
-          Click any to open it instantly.
-        </p>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Discover Telegram</h2>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
+            Select a chat from the sidebar, or explore popular channels and bots below.
+          </p>
+        </div>
         {error && (
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</p>
         )}
       </div>
 
       {/* Categories */}
-      <div className="space-y-6 px-5 pb-10">
+      <div className="space-y-8 px-4 pb-12 sm:px-6">
         {CATEGORIES.map((cat) => (
           <div key={cat.label}>
             <div className="mb-3 flex items-center gap-2">
-              <span>{cat.emoji}</span>
-              <span className="text-sm font-semibold">{cat.label}</span>
+              <span className="text-lg">{cat.emoji}</span>
+              <span className="text-sm font-semibold tracking-wide">{cat.label}</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
               {cat.channels.map((ch) => (
                 <button
                   key={ch.username}
@@ -121,9 +122,9 @@ export function DiscoverPage({ onSelect }: Props) {
                   onClick={() => open(ch.username)}
                   disabled={!!loading}
                   className={cn(
-                    "group flex flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-all",
-                    "hover:border-primary/30 hover:bg-primary/5 hover:shadow-sm",
-                    "disabled:opacity-50",
+                    "group flex flex-col gap-1 rounded-xl border bg-card/90 p-3.5 text-left transition-all duration-150 shadow-sm",
+                    "hover:border-primary/40 hover:bg-card hover:shadow-md hover:-translate-y-0.5",
+                    "disabled:pointer-events-none disabled:opacity-50",
                   )}
                 >
                   <div className="flex items-center gap-2">

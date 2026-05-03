@@ -63,14 +63,15 @@ export function Login() {
   const busy = sendCode.isPending || signIn.isPending;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-sm">
-        <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <MessageSquare className="h-7 w-7" />
+    <div className="flex min-h-screen items-center justify-center p-4"
+      style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, hsl(var(--primary) / 0.12), transparent 70%), hsl(var(--background))" }}>
+      <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-xl shadow-black/5">
+        <div className="mb-8 flex flex-col items-center gap-4 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+            <MessageSquare className="h-8 w-8" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Sign in to Telegram</h1>
+            <h1 className="text-xl font-semibold tracking-tight">Sign in to Telegram</h1>
             <p className="mt-1 text-xs text-muted-foreground">
               {step === "phone" && "Enter your phone number with country code."}
               {step === "code" &&
@@ -93,7 +94,7 @@ export function Login() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+1 234 567 8900"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none ring-0 transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 disabled={busy}
               />
             </div>
@@ -127,7 +128,7 @@ export function Login() {
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="12345"
                   maxLength={6}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-center font-mono text-lg tracking-widest outline-none focus:border-primary"
+                  className="w-full rounded-xl border bg-background px-3 py-2.5 text-center font-mono text-lg tracking-widest outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   disabled={busy}
                 />
               </div>
@@ -149,7 +150,7 @@ export function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Your 2FA password"
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                   disabled={busy}
                 />
               </div>

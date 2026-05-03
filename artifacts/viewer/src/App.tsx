@@ -20,7 +20,14 @@ import { useTheme } from "@/hooks/use-theme";
 import { useDesktopNotifications } from "@/hooks/use-notifications";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { DiscoverPage } from "@/components/DiscoverPage";
-import { MessageSquare, Loader2, LogOut, Moon, Sun, EyeOff, Eye, HelpCircle } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MessageSquare, Loader2, LogOut, Moon, Sun, EyeOff, Eye, Keyboard, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const queryClient = new QueryClient();
@@ -33,31 +40,10 @@ function ThemeToggle() {
       size="icon"
       onClick={toggle}
       title={theme === "dark" ? "Switch to light mode (Ctrl+D)" : "Switch to dark mode (Ctrl+D)"}
+      className="h-8 w-8 shrink-0"
       data-testid="button-theme-toggle"
     >
-      {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-    </Button>
-  );
-}
-
-function LogoutButton() {
-  const qc = useQueryClient();
-  const m = useMutation({
-    mutationFn: () => api.logout(),
-    onSuccess: async () => {
-      qc.clear();
-      await qc.invalidateQueries({ queryKey: ["auth-status"] });
-    },
-  });
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      title="Log out"
-      onClick={() => { if (confirm("Log out of Telegram?")) m.mutate(); }}
-      disabled={m.isPending}
-    >
-      {m.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogOut className="h-5 w-5" />}
+      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
   );
 }
@@ -152,51 +138,65 @@ function ChatApp() {
       {/* ── Sidebar ─────────────────────────────────────────────── */}
       <aside
         className={cn(
-          "flex w-full flex-col border-r bg-card",
-          "md:flex md:w-[340px] md:shrink-0",
+          "flex w-full flex-col border-r bg-sidebar",
+          "md:flex md:w-[320px] md:shrink-0",
           selected ? "hidden md:flex" : "flex",
         )}
       >
         {/* Header */}
-        <div className="flex items-center gap-1.5 border-b px-2 py-2">
+        <div className="flex items-center gap-2 border-b px-3 py-2.5">
           {me ? (
             <>
-              <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={38} />
-              <div className="min-w-0 flex-1">
+              <ChatAvatar peerId={me.id} title={meName} hasPhoto={true} size={36} />
+              <div className="min-w-0 flex-1 overflow-hidden">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{meName}</span>
+                  <span className="truncate text-sm font-semibold leading-tight">{meName}</span>
                   {totalUnread > 0 && (
-                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary-foreground">
+                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
                       {totalUnread > 999 ? "999+" : totalUnread}
                     </span>
                   )}
                 </div>
-                <div className="truncate text-xs text-muted-foreground">
+                <div className="truncate text-[11px] text-muted-foreground leading-tight mt-0.5">
                   {me.username ? `@${me.username}` : me.phone ? `+${me.phone}` : ""}
                 </div>
               </div>
+
               {/* Stealth mode toggle */}
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setStealthMode((v) => !v)}
-                title={stealthMode ? "Stealth ON: not marking messages as read (Ctrl+L)" : "Stealth OFF: marking messages as read (Ctrl+L)"}
-                className={cn("h-9 w-9 shrink-0", stealthMode && "text-amber-500")}
+                title={stealthMode ? "Stealth ON — not sending read receipts (Ctrl+L)" : "Stealth OFF — sending read receipts (Ctrl+L)"}
+                className={cn("h-8 w-8 shrink-0", stealthMode ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground")}
               >
                 {stealthMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
+
               <ThemeToggle />
-              {/* Keyboard shortcuts */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowShortcuts(true)}
-                title="Keyboard shortcuts (?)"
-                className="h-9 w-9 shrink-0"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-              <LogoutButton />
+
+              {/* More menu: shortcuts + logout */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setShowShortcuts(true)}>
+                    <Keyboard className="mr-2 h-4 w-4" />
+                    Keyboard shortcuts
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => { if (confirm("Log out of Telegram?")) api.logout().then(() => { queryClient.clear(); }); }}
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">

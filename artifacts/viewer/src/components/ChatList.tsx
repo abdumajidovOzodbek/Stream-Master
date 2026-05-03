@@ -128,15 +128,15 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
     return (
       <div className="flex h-full flex-col">
         {/* Search */}
-        <div className="border-b p-3 pb-2">
+        <div className="border-b px-3 py-2.5">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchRef}
               placeholder="Search chats or find anyone…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="h-9 rounded-full pl-8.5 text-sm"
             />
             {(isSearching || (search.trim() !== debouncedSearch && search.trim().length >= 2)) && (
               <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -146,31 +146,25 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
 
         {/* Filter tabs — hide while searching globally */}
         {!showGlobalSection && (
-          <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1.5 scrollbar-none">
+          <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2" style={{ scrollbarWidth: "none" }}>
             {TABS.map((t) => {
               const count = unreadCounts[t.key];
+              const active = tab === t.key;
               return (
                 <button
                   key={t.key}
                   type="button"
                   onClick={() => setTab(t.key)}
                   className={cn(
-                    "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                    tab === t.key
-                      ? "bg-primary text-primary-foreground"
+                    "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all duration-150",
+                    active
+                      ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   {t.label}
-                  {count > 0 && tab !== t.key && (
-                    <span
-                      className={cn(
-                        "ml-0.5 min-w-[16px] rounded-full px-1 text-[10px] leading-4",
-                        tab === t.key
-                          ? "bg-primary-foreground/20 text-primary-foreground"
-                          : "bg-primary/15 text-primary",
-                      )}
-                    >
+                  {count > 0 && !active && (
+                    <span className="ml-0.5 min-w-[16px] rounded-full bg-primary/15 px-1 text-[10px] leading-4 text-primary">
                       {count > 99 ? "99+" : count}
                     </span>
                   )}
@@ -205,7 +199,7 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
               <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                 Pinned
               </div>
-              <ul className="divide-y">
+              <ul>
                 {pinned.map((d) => (
                   <ChatRow
                     key={`${d.type}-${d.id}`}
@@ -216,14 +210,14 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
                 ))}
               </ul>
               {regular.length > 0 && (
-                <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
                   All chats
                 </div>
               )}
             </>
           )}
 
-          <ul className="divide-y">
+          <ul>
             {regular.map((d) => (
               <ChatRow
                 key={`${d.type}-${d.id}`}
@@ -262,7 +256,7 @@ export const ChatList = forwardRef<HTMLInputElement, ChatListProps>(
                 </div>
               )}
 
-              <ul className="divide-y">
+              <ul>
                 {newGlobalResults.map((d) => (
                   <ChatRow
                     key={`global-${d.type}-${d.id}`}
@@ -293,13 +287,15 @@ function ChatRow({
   isGlobal?: boolean;
 }) {
   return (
-    <li>
+    <li className="px-2">
       <button
         type="button"
         onClick={() => onSelect(d)}
         className={cn(
-          "flex min-h-[64px] w-full items-center gap-3 px-3 py-3 text-left transition-colors active:bg-muted/70 hover:bg-muted/50",
-          selected && "bg-primary/10 hover:bg-primary/15",
+          "flex min-h-[62px] w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-all duration-100",
+          selected
+            ? "bg-primary/10 ring-1 ring-primary/20"
+            : "hover:bg-muted/60 active:bg-muted/80",
         )}
       >
         <div className="relative shrink-0">

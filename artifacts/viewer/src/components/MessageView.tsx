@@ -754,8 +754,8 @@ function MessageBubble({
               // Mobile: 90% width so messages are readable; desktop: 75%
               "relative max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[75%]",
               out
-                ? "rounded-br-sm bg-primary text-primary-foreground"
-                : "rounded-bl-sm bg-card",
+                ? "rounded-br-sm bubble-out text-primary-foreground shadow-md"
+                : "rounded-bl-sm bg-card shadow-sm",
               isChannel && !out && "sm:max-w-[85%]",
             )}
           >
@@ -1085,7 +1085,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
       {/* Main chat column */}
       <div className="flex h-full min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-2 border-b bg-card/50 px-2 py-2 md:gap-3 md:px-4 md:py-3">
+        <div className="flex items-center gap-2 border-b glass px-2 py-2 md:gap-3 md:px-4 md:py-3 sticky top-0 z-10">
           {/* Back button — mobile only */}
           {onBack && (
             <Button
@@ -1156,7 +1156,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
         )}
 
         {/* Messages */}
-        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-y-auto bg-muted/30">
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-y-auto chat-bg">
           {/* Unread jump button */}
           {dialog.unreadCount > 0 && allMessages.length > 0 && (
             <button
@@ -1226,8 +1226,8 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                 return (
                   <div key={m.id} className="msg-row">
                     {showDate && (
-                      <div className="my-3 flex justify-center">
-                        <span className="rounded-full bg-card px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
+                      <div className="my-4 flex justify-center">
+                        <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
                           {formatDateLabel(m.date)}
                         </span>
                       </div>
