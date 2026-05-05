@@ -48,11 +48,14 @@ import {
   Eye,
   Keyboard,
   MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldAlert,
   CornerUpLeft,
   Lock,
   Settings,
 } from "lucide-react";
+import { useAppearance } from "@/hooks/use-appearance";
 import { cn } from "@/lib/utils";
 
 const queryClient = new QueryClient();
@@ -125,6 +128,12 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("sidebar-collapsed") === "1",
+  );
+
+  // Initialize appearance settings (accent color, density, wallpaper) from localStorage
+  useAppearance();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const deepLinkApplied = useRef(false);
   const { toggle: toggleTheme } = useTheme();
@@ -226,9 +235,11 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
             // Mobile: absolutely positioned so both panes can animate simultaneously
             "absolute inset-y-0 left-0 w-full",
             // Desktop: normal flex child with responsive width
-            "md:relative md:inset-auto md:w-[280px] md:shrink-0 lg:w-[320px] xl:w-[360px]",
+            sidebarCollapsed
+              ? "md:relative md:inset-auto md:w-0 md:shrink-0 md:overflow-hidden md:border-r-0"
+              : "md:relative md:inset-auto md:w-[280px] md:shrink-0 lg:w-[320px] xl:w-[360px]",
             // Slide transition — CSS transform so both panes animate together
-            "transition-transform duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "transition-all duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
             // md+ always visible, override any mobile translate
             "md:!translate-x-0",
             selected ? "-translate-x-full" : "translate-x-0",
@@ -323,6 +334,22 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
               <SettingsPanel onClose={() => setShowSettings(false)} />
             )}
           </div>
+
+          {/* Sidebar collapse button (desktop only, bottom of sidebar) */}
+          <div className="hidden md:flex shrink-0 items-center justify-end border-t px-2 py-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setSidebarCollapsed(true);
+                localStorage.setItem("sidebar-collapsed", "1");
+              }}
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          </div>
         </aside>
 
         {/* ── Main content ─────────────────────────────────────────── */}
@@ -345,6 +372,14 @@ function ChatApp({ impersonating }: { impersonating: boolean }) {
               dialog={selected}
               onBack={handleBack}
               stealthMode={stealthMode}
+              sidebarCollapsed={sidebarCollapsed}
+              onToggleSidebar={() => {
+                setSidebarCollapsed((v) => {
+                  const next = !v;
+                  localStorage.setItem("sidebar-collapsed", next ? "1" : "0");
+                  return next;
+                });
+              }}
             />
           ) : (
             <DiscoverPage onSelect={handleSelect} />

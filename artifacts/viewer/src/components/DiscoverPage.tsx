@@ -125,9 +125,11 @@ export function DiscoverPage({ onSelect }: Props) {
       </div>
 
       {tab === "lookup" ? (
-        <ChannelLookupPage />
+        <div key="lookup" className="flex-1 min-h-0 overflow-y-auto animate-in fade-in duration-150">
+          <ChannelLookupPage />
+        </div>
       ) : (
-        <div className="flex-1 overflow-y-auto chat-bg">
+        <div key="discover" className="flex-1 overflow-y-auto chat-bg animate-in fade-in duration-150">
           {/* Hero */}
           <div className="flex flex-col items-center gap-4 px-6 pb-8 pt-12 text-center">
             <div className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">

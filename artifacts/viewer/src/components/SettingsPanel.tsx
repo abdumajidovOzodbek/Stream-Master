@@ -35,6 +35,7 @@ import {
   Loader2,
   LogOut,
   Monitor,
+  Palette,
   Pencil,
   Phone,
   Shield,
@@ -43,8 +44,9 @@ import {
   UserX,
   X,
 } from "lucide-react";
+import { useAppearance, ACCENT_PRESETS, type WallpaperMode, type DensityMode } from "@/hooks/use-appearance";
 
-type Section = "profile" | "privacy" | "sessions" | "blocked" | "2fa";
+type Section = "profile" | "privacy" | "sessions" | "blocked" | "2fa" | "appearance";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -765,6 +767,118 @@ function TwoFASection({ onBack }: { onBack: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Appearance section
+// ---------------------------------------------------------------------------
+
+function AppearanceSection({ onBack }: { onBack: () => void }) {
+  const { settings, update } = useAppearance();
+
+  const wallpapers: { key: WallpaperMode; label: string; cls: string; desc: string }[] = [
+    { key: "dots",     label: "Dots",  cls: "wallpaper-dots",     desc: "Classic" },
+    { key: "none",     label: "Plain", cls: "wallpaper-none",     desc: "Clean" },
+    { key: "grid",     label: "Grid",  cls: "wallpaper-grid",     desc: "Structured" },
+    { key: "diagonal", label: "Lines", cls: "wallpaper-diagonal", desc: "Subtle" },
+  ];
+
+  const densities: { key: DensityMode; label: string; desc: string }[] = [
+    { key: "compact",     label: "Compact",     desc: "More messages" },
+    { key: "comfortable", label: "Comfortable", desc: "Default" },
+    { key: "spacious",    label: "Spacious",    desc: "Relaxed" },
+  ];
+
+  return (
+    <div className="flex flex-col h-full">
+      <SectionHeader title="Appearance" onBack={onBack} />
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-4 space-y-6">
+          {/* Accent Color */}
+          <div>
+            <div className="text-sm font-semibold mb-0.5">Accent Color</div>
+            <div className="text-xs text-muted-foreground mb-3">Theme color for buttons and highlights</div>
+            <div className="grid grid-cols-4 gap-2">
+              {ACCENT_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => update({ accentPreset: preset.name })}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 transition-all",
+                    settings.accentPreset === preset.name
+                      ? "bg-primary/10 ring-2 ring-primary"
+                      : "hover:bg-muted/60 border border-transparent hover:border-border",
+                  )}
+                >
+                  <div
+                    className="h-8 w-8 rounded-full shadow-sm"
+                    style={{ background: preset.preview }}
+                  />
+                  <span className="text-[10px] text-muted-foreground leading-none">{preset.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Density */}
+          <div>
+            <div className="text-sm font-semibold mb-0.5">Message Density</div>
+            <div className="text-xs text-muted-foreground mb-3">Adjust spacing between messages</div>
+            <div className="grid grid-cols-3 gap-2">
+              {densities.map(({ key, label, desc }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => update({ density: key })}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-center transition-all",
+                    settings.density === key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border hover:bg-muted/50",
+                  )}
+                >
+                  <span className="text-xs font-medium">{label}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Chat Background */}
+          <div>
+            <div className="text-sm font-semibold mb-0.5">Chat Background</div>
+            <div className="text-xs text-muted-foreground mb-3">Pattern shown behind messages</div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {wallpapers.map(({ key, label, cls, desc }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => update({ wallpaper: key })}
+                  className={cn(
+                    "overflow-hidden rounded-xl border transition-all",
+                    settings.wallpaper === key
+                      ? "ring-2 ring-primary border-primary"
+                      : "border-border hover:border-primary/50",
+                  )}
+                >
+                  <div className={cn("h-16 w-full", cls)} />
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-card">
+                    <span className="text-xs font-medium">{label}</span>
+                    <span className="text-[10px] text-muted-foreground">{desc}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main settings menu
 // ---------------------------------------------------------------------------
 
@@ -776,6 +890,7 @@ interface MenuItem {
 }
 
 const MENU_ITEMS: MenuItem[] = [
+  { key: "appearance", icon: <Palette className="h-4 w-4" />, label: "Appearance", description: "Colors, density, background" },
   { key: "profile", icon: <User className="h-4 w-4" />, label: "Edit Profile", description: "Name, bio, username, photo" },
   { key: "privacy", icon: <Eye className="h-4 w-4" />, label: "Privacy", description: "Last seen, calls, messages" },
   { key: "sessions", icon: <Monitor className="h-4 w-4" />, label: "Active Sessions", description: "Manage logged-in devices" },
@@ -881,6 +996,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       )}
       {section === "2fa" && (
         <TwoFASection onBack={() => setSection(null)} />
+      )}
+      {section === "appearance" && (
+        <AppearanceSection onBack={() => setSection(null)} />
       )}
     </div>
   );

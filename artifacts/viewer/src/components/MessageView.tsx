@@ -64,6 +64,8 @@ import {
   VolumeX,
   AlertTriangle,
   ChevronDown,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
 import {
   Dialog as UiDialog,
@@ -975,7 +977,7 @@ function MessageBubble({
             className={cn(
               // min-w ensures very short messages ("Hi", "ok") always have room
               // for the timestamp + status footer without wrapping.
-              "relative min-w-[108px] overflow-hidden rounded-2xl px-3.5 py-2 text-sm",
+              "relative min-w-[108px] overflow-hidden rounded-2xl px-3.5 py-2 text-sm msg-bubble-body",
               out
                 ? "rounded-br-sm bubble-out text-primary-foreground"
                 : "rounded-bl-sm bubble-in",
@@ -1397,7 +1399,13 @@ function PinnedBanner({
 // Main MessageView
 // ---------------------------------------------------------------------------
 
-export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; onBack?: () => void; stealthMode?: boolean }) {
+export function MessageView({ dialog, onBack, stealthMode, sidebarCollapsed, onToggleSidebar }: {
+  dialog: Dialog;
+  onBack?: () => void;
+  stealthMode?: boolean;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
+}) {
   const qc = useQueryClient();
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
@@ -1604,6 +1612,25 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
     window.setTimeout(() => setHighlightId(null), 1500);
   }, []);
 
+  // Export all loaded messages as JSON download
+  const handleExport = useCallback(() => {
+    const payload = allMessages.map((m) => ({
+      id: m.id,
+      date: new Date(m.date * 1000).toISOString(),
+      fromId: m.fromId,
+      text: m.text ?? "",
+      out: m.out,
+      ...(m.media ? { mediaKind: m.media.kind } : {}),
+    }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-${dialog.title.replace(/[^a-z0-9]/gi, "_")}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [allMessages, dialog.title]);
+
   return (
     <div className="flex h-full min-w-0 flex-1">
       {/* Main chat column */}
@@ -1641,6 +1668,21 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
 
           {/* Header actions — 44px touch targets */}
           <div className="flex shrink-0 items-center gap-0.5">
+            {/* Sidebar toggle (desktop only) */}
+            {onToggleSidebar && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                onClick={onToggleSidebar}
+                className="hidden md:flex h-11 w-11"
+              >
+                {sidebarCollapsed
+                  ? <PanelLeftOpen className="h-4 w-4" />
+                  : <PanelLeftClose className="h-4 w-4" />}
+              </Button>
+            )}
+
             {/* Jump to date */}
             <Button
               variant="ghost"
@@ -1741,6 +1783,18 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
             >
               <BarChart2 className="h-4 w-4" />
             </Button>
+            {/* Export loaded messages as JSON */}
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Download messages (JSON)"
+              onClick={handleExport}
+              disabled={allMessages.length === 0}
+              className="hidden sm:flex h-11 w-11"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+
             {dialog.username && (
               <Button asChild variant="ghost" size="icon" className="hidden sm:flex h-11 w-11">
                 <a href={`https://t.me/${dialog.username}`} target="_blank" rel="noreferrer"
@@ -1828,9 +1882,38 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
           )}
           {!isLoading && allMessages.length === 0 && !error && (
             <div className="flex h-full items-center justify-center py-20">
-              <div className="flex flex-col items-center gap-3 rounded-2xl bg-card/90 px-8 py-6 shadow-sm backdrop-blur-sm border border-border/50">
-                <MessageSquare className="h-9 w-9 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">No messages yet</p>
+              <div className="flex flex-col items-center gap-4 rounded-2xl bg-card/90 px-10 py-8 shadow-sm backdrop-blur-sm border border-border/50 text-center max-w-[260px]">
+                {dialog.type === "channel" ? (
+                  <>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <Users className="h-7 w-7" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">Channel is empty</p>
+                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed">No posts have been published yet.</p>
+                    </div>
+                  </>
+                ) : dialog.type === "chat" ? (
+                  <>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <MessageSquare className="h-7 w-7" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">Group is quiet</p>
+                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed">Be the first to say something!</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <MessageSquare className="h-7 w-7" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">No messages yet</p>
+                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed">Send a message to start the conversation.</p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -1879,12 +1962,23 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                 const albumPeers = m.groupedId ? (albumGroups.get(m.groupedId) ?? [m]) : [m];
                 const isAlbumFollower = m.groupedId != null && albumPeers.length > 1 && albumPeers[0]?.id !== m.id;
 
+                // Unread divider: show before the first incoming unread message
+                const showUnreadDivider =
+                  !isAlbumFollower &&
+                  dialog.readInboxMaxId !== null &&
+                  dialog.unreadCount > 0 &&
+                  !m.out &&
+                  m.id > dialog.readInboxMaxId &&
+                  i > 0 &&
+                  prev !== undefined &&
+                  (prev.id <= dialog.readInboxMaxId || prev.out);
+
                 return (
                   <div
                     key={m.id}
                     className={cn(
                       "msg-row",
-                      isAlbumFollower ? "hidden" : (i === 0 ? "mt-0" : sameAsPrev ? "mt-0.5" : "mt-2.5"),
+                      isAlbumFollower ? "hidden" : (i === 0 ? "mt-0" : sameAsPrev ? "msg-tight" : "msg-gap"),
                     )}
                   >
                     {!isAlbumFollower && showDate && (
@@ -1892,6 +1986,16 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
                         <span className="rounded-full bg-card/90 px-3.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm border border-border/50">
                           {formatDateLabel(m.date)}
                         </span>
+                      </div>
+                    )}
+
+                    {showUnreadDivider && (
+                      <div className="my-3 flex items-center gap-3 px-1">
+                        <div className="flex-1 h-px bg-primary/30" />
+                        <span className="shrink-0 rounded-full bg-primary/15 px-3 py-1 text-[11px] font-medium text-primary">
+                          {dialog.unreadCount} new
+                        </span>
+                        <div className="flex-1 h-px bg-primary/30" />
                       </div>
                     )}
                     <MessageBubble

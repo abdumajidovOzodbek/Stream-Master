@@ -306,6 +306,47 @@
   }
 }
 
+/* ── Density variables ──────────────────────────────────── */
+/* .msg-tight / .msg-gap replace Tailwind mt- classes so density can override */
+.msg-tight { margin-top: 2px; }
+.msg-gap   { margin-top: 10px; }
+
+[data-density="compact"] .msg-tight { margin-top: 1px; }
+[data-density="compact"] .msg-gap   { margin-top: 5px; }
+[data-density="compact"] .msg-bubble-body { padding: 5px 10px !important; font-size: 0.8125rem !important; }
+[data-density="compact"] .msg-bubble-body .leading-\[1\.45\] { line-height: 1.35 !important; }
+
+[data-density="spacious"] .msg-tight { margin-top: 5px; }
+[data-density="spacious"] .msg-gap   { margin-top: 18px; }
+[data-density="spacious"] .msg-bubble-body { padding: 11px 16px !important; }
+
+/* ── Wallpaper preview classes (used in settings preview buttons) ── */
+.wallpaper-dots {
+  background-color: var(--chat-bg-base);
+  background-image: radial-gradient(var(--chat-bg-dot) 1.5px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+.wallpaper-none {
+  background-color: var(--chat-bg-base);
+}
+.wallpaper-grid {
+  background-color: var(--chat-bg-base);
+  background-image:
+    linear-gradient(var(--chat-bg-dot) 1px, transparent 1px),
+    linear-gradient(90deg, var(--chat-bg-dot) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.wallpaper-diagonal {
+  background-color: var(--chat-bg-base);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 9px,
+    var(--chat-bg-dot) 9px,
+    var(--chat-bg-dot) 10px
+  );
+}
+
 /* ── Utilities ──────────────────────────────────────────── */
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button {
@@ -323,6 +364,26 @@
     background-color: var(--chat-bg-base);
     background-image: radial-gradient(var(--chat-bg-dot) 1.5px, transparent 1.5px);
     background-size: 22px 22px;
+  }
+
+  /* Wallpaper overrides — data-wallpaper attr on <html> from useAppearance */
+  [data-wallpaper="none"] .chat-bg {
+    background-image: none;
+  }
+  [data-wallpaper="grid"] .chat-bg {
+    background-image:
+      linear-gradient(var(--chat-bg-dot) 1px, transparent 1px),
+      linear-gradient(90deg, var(--chat-bg-dot) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  [data-wallpaper="diagonal"] .chat-bg {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 9px,
+      var(--chat-bg-dot) 9px,
+      var(--chat-bg-dot) 10px
+    );
   }
 
   /* Outgoing bubble — vivid gradient, feels like a real send bubble */
