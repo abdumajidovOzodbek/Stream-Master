@@ -21,6 +21,7 @@ import { MessageContextMenu } from "./MessageContextMenu";
 import { UserProfileCard } from "./UserProfileCard";
 import { SharedMediaPanel } from "./SharedMediaPanel";
 import { ChatStats } from "./ChatStats";
+import { SubscribersPanel } from "./SubscribersPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,7 @@ import {
   ArrowLeft,
   MessageSquare,
   BarChart2,
+  Users,
   Trash2,
   Pin,
   PinOff,
@@ -1426,6 +1428,7 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
   const [showSearch, setShowSearch] = useState(false);
   const [showSharedMedia, setShowSharedMedia] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showSubscribers, setShowSubscribers] = useState(false);
   const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
   const [typingNames, setTypingNames] = useState<string[]>(() => getTypingNames(dialog.id));
 
@@ -1713,16 +1716,27 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
               variant="ghost"
               size="icon"
               title="Shared media"
-              onClick={() => { setShowSharedMedia((v) => !v); setShowStats(false); }}
+              onClick={() => { setShowSharedMedia((v) => !v); setShowStats(false); setShowSubscribers(false); }}
               className={cn("h-11 w-11", showSharedMedia && "bg-primary/10 text-primary")}
             >
               <Images className="h-4 w-4" />
             </Button>
+            {(dialog.type === "channel" || dialog.type === "chat") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title={dialog.type === "channel" ? "Subscribers" : "Members"}
+                onClick={() => { setShowSubscribers((v) => !v); setShowSharedMedia(false); setShowStats(false); }}
+                className={cn("h-11 w-11", showSubscribers && "bg-primary/10 text-primary")}
+              >
+                <Users className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
               title="Chat analytics"
-              onClick={() => { setShowStats((v) => !v); setShowSharedMedia(false); }}
+              onClick={() => { setShowStats((v) => !v); setShowSharedMedia(false); setShowSubscribers(false); }}
               className={cn("h-11 w-11", showStats && "bg-primary/10 text-primary")}
             >
               <BarChart2 className="h-4 w-4" />
@@ -1930,6 +1944,15 @@ export function MessageView({ dialog, onBack, stealthMode }: { dialog: Dialog; o
         <ChatStats
           dialog={dialog}
           onClose={() => setShowStats(false)}
+        />
+      )}
+
+      {/* Subscribers / members side panel */}
+      {showSubscribers && (dialog.type === "channel" || dialog.type === "chat") && (
+        <SubscribersPanel
+          dialog={dialog}
+          onClose={() => setShowSubscribers(false)}
+          onOpenProfile={(id) => setProfilePeerId(id)}
         />
       )}
 

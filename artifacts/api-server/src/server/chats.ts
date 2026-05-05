@@ -30,6 +30,7 @@ import {
   joinChat,
   leaveChat,
   getBotCommands,
+  getChannelSubscribers,
 } from "../telegram/chats";
 import { streamRangedResponse } from "../lib/range";
 
@@ -602,6 +603,26 @@ router.get("/chats/:chatId/commands", async (req: Request, res: Response) => {
     res.json(await getBotCommands(client, chatId));
   } catch (err) {
     handleError(req, res, err, "Failed to get bot commands");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Subscribers (channel / group members)
+// ---------------------------------------------------------------------------
+
+router.get("/chats/:chatId/subscribers", async (req: Request, res: Response) => {
+  const client = await getAuthedClient(req, res);
+  if (!client) return;
+  const chatRaw = req.params["chatId"];
+  const chatId = (Array.isArray(chatRaw) ? chatRaw[0] : chatRaw) ?? "";
+  if (!chatId) { res.status(400).json({ error: "Missing chatId" }); return; }
+  const limit = Math.min(Number(req.query["limit"] ?? 100) || 100, 200);
+  const offset = Number(req.query["offset"] ?? 0) || 0;
+  const q = ((req.query["q"] as string | undefined) ?? "").trim();
+  try {
+    res.json(await getChannelSubscribers(client, chatId, limit, offset, q));
+  } catch (err) {
+    handleError(req, res, err, "Failed to fetch subscribers");
   }
 });
 

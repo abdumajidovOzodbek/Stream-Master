@@ -100,6 +100,15 @@ export interface BotCommand {
   description: string;
 }
 
+export interface SubscriberEntry {
+  id: string;
+  name: string;
+  username: string | null;
+  hasPhoto: boolean;
+  isBot: boolean;
+  role: "creator" | "admin" | "member";
+}
+
 export interface Message {
   id: number;
   date: number;
@@ -324,6 +333,14 @@ export const api = {
 
   botCommands: (chatId: string) =>
     get<BotCommand[]>(`/api/chats/${encodeURIComponent(chatId)}/commands`),
+
+  subscribers: (chatId: string, limit = 100, offset = 0, q = "") => {
+    const p = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (q) p.set("q", q);
+    return get<{ subscribers: SubscriberEntry[]; total: number }>(
+      `/api/chats/${encodeURIComponent(chatId)}/subscribers?${p}`,
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -1182,6 +1182,85 @@ export async function getBotCommands(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Channel / group subscribers
+// ---------------------------------------------------------------------------
+
+export interface SubscriberEntry {
+  id: string;
+  name: string;
+  username: string | null;
+  hasPhoto: boolean;
+  isBot: boolean;
+  role: "creator" | "admin" | "member";
+}
+
+export async function getChannelSubscribers(
+  client: TelegramClient,
+  chatId: string,
+  limit = 100,
+  offset = 0,
+  q = "",
+): Promise<{ subscribers: SubscriberEntry[]; total: number }> {
+  const { entity } = await resolveEntity(client, chatId);
+
+  const filter: Api.TypeChannelParticipantsFilter = q
+    ? new Api.ChannelParticipantsSearch({ q })
+    : new Api.ChannelParticipantsRecent();
+
+  const result = await client.invoke(
+    new Api.channels.GetParticipants({
+      channel: entity as unknown as Api.TypeInputChannel,
+      filter,
+      offset,
+      limit,
+      hash: bigInt(0),
+    }),
+  );
+
+  const res = result as unknown as {
+    participants: Array<{
+      userId?: unknown;
+      peer?: unknown;
+      className?: string;
+    }>;
+    users: Array<unknown>;
+    count?: number;
+  };
+
+  const userMap = new Map<string, unknown>();
+  for (const u of res.users) {
+    userMap.set(bigToString((u as { id: unknown }).id), u);
+  }
+
+  const subscribers: SubscriberEntry[] = [];
+  for (const p of res.participants) {
+    const userId = p.userId
+      ? bigToString(p.userId)
+      : p.peer instanceof Api.PeerUser
+        ? bigToString((p.peer as Api.PeerUser).userId)
+        : null;
+    if (!userId) continue;
+    const user = userMap.get(userId);
+    if (!user) continue;
+
+    let role: "creator" | "admin" | "member" = "member";
+    if (p.className === "ChannelParticipantCreator") role = "creator";
+    else if (p.className === "ChannelParticipantAdmin") role = "admin";
+
+    subscribers.push({
+      id: userId,
+      name: entityTitle(user),
+      username: (user as { username?: string }).username ?? null,
+      hasPhoto: !!(user as { photo?: unknown }).photo,
+      isBot: user instanceof Api.User ? (user.bot ?? false) : false,
+      role,
+    });
+  }
+
+  return { subscribers, total: res.count ?? subscribers.length };
+}
+
 export async function searchContacts(client: TelegramClient, q: string, limit = 20): Promise<DialogEntry[]> {
   const result = await client.invoke(new Api.contacts.Search({ q, limit }));
 
