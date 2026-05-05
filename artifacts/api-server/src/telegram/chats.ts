@@ -111,6 +111,7 @@ export interface UserInfo {
   isBot: boolean;
   hasPhoto: boolean;
   type: "user" | "chat" | "channel";
+  participantsCount: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +518,7 @@ export async function getUserInfo(client: TelegramClient, peerId: string): Promi
   const isBot = entity instanceof Api.User ? !!entity.bot : false;
 
   let bio: string | null = null;
+  let participantsCount: number | null = null;
   try {
     if (entity instanceof Api.User) {
       const full = await client.invoke(
@@ -528,8 +530,9 @@ export async function getUserInfo(client: TelegramClient, peerId: string): Promi
       const full = await client.invoke(
         new Api.channels.GetFullChannel({ channel: entity as unknown as Api.TypeInputChannel }),
       );
-      const about = (full as unknown as { fullChat?: { about?: string } }).fullChat?.about;
-      bio = about ?? null;
+      const fullChat = (full as unknown as { fullChat?: { about?: string; participantsCount?: number } }).fullChat;
+      bio = fullChat?.about ?? null;
+      participantsCount = typeof fullChat?.participantsCount === "number" ? fullChat.participantsCount : null;
     }
   } catch { /* bio optional */ }
 
@@ -542,6 +545,7 @@ export async function getUserInfo(client: TelegramClient, peerId: string): Promi
     isBot,
     hasPhoto,
     type,
+    participantsCount,
   };
 }
 
@@ -1201,22 +1205,42 @@ export async function getChannelSubscribers(
   limit = 100,
   offset = 0,
   q = "",
-): Promise<{ subscribers: SubscriberEntry[]; total: number }> {
-  const { entity } = await resolveEntity(client, chatId);
+): Promise<{ subscribers: SubscriberEntry[]; total: number; broadcastOnly: boolean }> {
+  // Resolve by username (strip leading @ or t.me/ prefix for cleaner lookup)
+  const normalized = chatId.startsWith("https://t.me/")
+    ? chatId.replace("https://t.me/", "")
+    : chatId.startsWith("t.me/")
+      ? chatId.replace("t.me/", "")
+      : chatId;
+
+  const { entity } = await resolveEntity(client, normalized);
+
+  // Rough participant count available directly on the channel entity
+  const roughCount = (entity as { participantsCount?: number }).participantsCount ?? 0;
 
   const filter: Api.TypeChannelParticipantsFilter = q
     ? new Api.ChannelParticipantsSearch({ q })
     : new Api.ChannelParticipantsRecent();
 
-  const result = await client.invoke(
-    new Api.channels.GetParticipants({
-      channel: entity as unknown as Api.TypeInputChannel,
-      filter,
-      offset,
-      limit,
-      hash: bigInt(0),
-    }),
-  );
+  let result: unknown;
+  try {
+    result = await client.invoke(
+      new Api.channels.GetParticipants({
+        channel: entity as unknown as Api.TypeInputChannel,
+        filter,
+        offset,
+        limit,
+        hash: bigInt(0),
+      }),
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/CHAT_ADMIN_REQUIRED|CHANNEL_PRIVATE/i.test(msg)) {
+      // Broadcast channels hide their subscriber list — return count only
+      return { subscribers: [], total: roughCount, broadcastOnly: true };
+    }
+    throw err;
+  }
 
   const res = result as unknown as {
     participants: Array<{
@@ -1258,7 +1282,7 @@ export async function getChannelSubscribers(
     });
   }
 
-  return { subscribers, total: res.count ?? subscribers.length };
+  return { subscribers, total: res.count ?? subscribers.length, broadcastOnly: false };
 }
 
 export async function searchContacts(client: TelegramClient, q: string, limit = 20): Promise<DialogEntry[]> {

@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Dialog, type SubscriberEntry } from "@/lib/api";
 import { ChatAvatar } from "./Avatar";
-import { X, Loader2, Search, Users, Crown, ShieldCheck, Bot } from "lucide-react";
+import { X, Loader2, Search, Users, Crown, ShieldCheck, Bot, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -30,7 +30,7 @@ function RoleBadge({ role }: { role: SubscriberEntry["role"] }) {
   return null;
 }
 
-function SubscriberRow({
+export function SubscriberRow({
   sub,
   onAvatarClick,
 }: {
@@ -112,6 +112,7 @@ export function SubscribersPanel({ dialog, onClose, onOpenProfile }: Props) {
   }, []);
 
   const total = data?.total ?? null;
+  const broadcastOnly = data?.broadcastOnly ?? false;
 
   return (
     <div className="flex h-full w-72 shrink-0 flex-col border-l bg-card">
@@ -134,17 +135,19 @@ export function SubscribersPanel({ dialog, onClose, onOpenProfile }: Props) {
       </div>
 
       {/* Search */}
-      <div className="border-b px-2 py-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={rawSearch}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search members…"
-            className="h-8 pl-8 text-xs"
-          />
+      {!broadcastOnly && (
+        <div className="border-b px-2 py-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={rawSearch}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Search members…"
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-1.5">
@@ -154,32 +157,44 @@ export function SubscribersPanel({ dialog, onClose, onOpenProfile }: Props) {
           </div>
         )}
 
-        {error && (
-          <div className="px-3 py-6 text-center text-xs text-destructive">
-            {(error as Error).message.includes("CHAT_ADMIN_REQUIRED") ||
-            (error as Error).message.includes("Inaccessible")
-              ? "You need admin rights to view members of this channel."
-              : (error as Error).message}
+        {broadcastOnly && (
+          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+            <Lock className="h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm font-medium">Subscriber list is private</p>
+            <p className="text-xs text-muted-foreground">
+              Telegram does not expose the subscriber list for broadcast channels.
+              {total !== null && total > 0 && (
+                <> This channel has <strong>{total.toLocaleString()}</strong> subscribers.</>
+              )}
+            </p>
           </div>
         )}
 
-        {!isLoading && !error && allLoaded.length === 0 && (
+        {error && !broadcastOnly && (
+          <div className="px-3 py-6 text-center text-xs text-destructive">
+            {(error as Error).message}
+          </div>
+        )}
+
+        {!isLoading && !error && !broadcastOnly && allLoaded.length === 0 && (
           <div className="py-8 text-center text-sm text-muted-foreground">
             No members found
           </div>
         )}
 
-        <div className="space-y-0.5">
-          {allLoaded.map((sub) => (
-            <SubscriberRow
-              key={sub.id}
-              sub={sub}
-              onAvatarClick={onOpenProfile}
-            />
-          ))}
-        </div>
+        {!broadcastOnly && (
+          <div className="space-y-0.5">
+            {allLoaded.map((sub) => (
+              <SubscriberRow
+                key={sub.id}
+                sub={sub}
+                onAvatarClick={onOpenProfile}
+              />
+            ))}
+          </div>
+        )}
 
-        {!error && hasMore && allLoaded.length > 0 && (
+        {!error && !broadcastOnly && hasMore && allLoaded.length > 0 && (
           <button
             type="button"
             onClick={loadMore}

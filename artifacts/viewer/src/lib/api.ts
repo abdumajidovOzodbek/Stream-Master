@@ -138,6 +138,7 @@ export interface UserInfo {
   isBot: boolean;
   hasPhoto: boolean;
   type: "user" | "chat" | "channel";
+  participantsCount: number | null;
 }
 
 export interface AdminSession {
@@ -337,7 +338,7 @@ export const api = {
   subscribers: (chatId: string, limit = 100, offset = 0, q = "") => {
     const p = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (q) p.set("q", q);
-    return get<{ subscribers: SubscriberEntry[]; total: number }>(
+    return get<{ subscribers: SubscriberEntry[]; total: number; broadcastOnly: boolean }>(
       `/api/chats/${encodeURIComponent(chatId)}/subscribers?${p}`,
     );
   },
